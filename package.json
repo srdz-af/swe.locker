@@ -1,0 +1,57 @@
+{
+  "name": "swe.locker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:api": "tsx watch server/src/index.ts",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "build:web": "tsc -p client/tsconfig.json --noEmit && vite build",
+    "build:api": "tsc -p server/tsconfig.json",
+    "build:shared": "tsc -p shared/tsconfig.json",
+    "start": "node dist/server/index.js",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:api && npm run typecheck:web",
+    "typecheck:web": "tsc -p client/tsconfig.json --noEmit",
+    "typecheck:api": "tsc -p server/tsconfig.json --noEmit",
+    "typecheck:shared": "tsc -p shared/tsconfig.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@carbon/icons-react": "^11.82.0",
+    "@carbon/react": "^1.110.0",
+    "@carbon/styles": "^1.109.0",
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-is": "^19.2.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
+    "prisma": "^7.8.0",
+    "sass": "^1.101.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0"
+  }
+}

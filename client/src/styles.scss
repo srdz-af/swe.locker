@@ -1,0 +1,150 @@
+:root {
+  background: #f4f4f4;
+  color: #161616;
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.app-content {
+  min-height: 100vh;
+  padding-block: 3rem;
+  background: #f4f4f4;
+}
+
+.dashboard-grid {
+  row-gap: 1.5rem;
+}
+
+.dashboard-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-end: 1.5rem;
+}
+
+.dashboard-heading h1 {
+  margin: 0.75rem 0 0.5rem;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.dashboard-heading p,
+.section-header p,
+.posting-empty span {
+  max-width: 44rem;
+  color: #525252;
+}
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.feed-shell,
+.stats-tile,
+.notice-tile {
+  background: #ffffff;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-end: 1.5rem;
+}
+
+.section-header h2,
+.stats-tile h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.posting-table {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #e0e0e0;
+}
+
+.posting-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 1fr 1fr 0.7fr;
+  min-width: 48rem;
+}
+
+.posting-row--header {
+  background: #e0e0e0;
+  color: #393939;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.posting-row span {
+  padding: 0.875rem 1rem;
+}
+
+.posting-empty {
+  min-height: 12rem;
+  padding: 2rem;
+  border-block-start: 1px solid #e0e0e0;
+}
+
+.posting-empty p {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.sidebar-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #e0e0e0;
+}
+
+.stat-item {
+  display: flex;
+  min-height: 6.5rem;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1rem;
+  background: #f4f4f4;
+}
+
+.stat-item strong {
+  font-size: 2rem;
+  font-weight: 400;
+}
+
+.stat-item span {
+  color: #525252;
+}
+
+@media (max-width: 65.98rem) {
+  .dashboard-heading,
+  .section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-actions {
+    justify-content: flex-start;
+  }
+
+  .posting-table {
+    overflow-x: auto;
+  }
+}
