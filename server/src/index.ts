@@ -1,10 +1,12 @@
 import { createApp } from "./app.js";
 import { config } from "./config.js";
+import { startRefreshScheduler } from "./scheduler.js";
 
 const app = createApp();
 
 const server = app.listen(config.serverPort, () => {
   console.log(`swe.locker API listening on http://localhost:${config.serverPort}`);
+  startRefreshScheduler();
 });
 
 function shutdown(signal: NodeJS.Signals) {

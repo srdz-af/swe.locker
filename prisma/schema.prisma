@@ -1,8 +1,145 @@
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  output   = "../server/src/generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
+}
+
+enum FetchRunStatus {
+  RUNNING
+  SUCCESS
+  FAILURE
+}
+
+enum ApplicationStatus {
+  APPLIED
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum ApplicationEventType {
+  CREATED
+  STATUS_CHANGED
+}
+
+model SourceConfig {
+  id                 String       @id @default(cuid())
+  sourceKey          String       @unique
+  displayName        String
+  repositoryUrl      String
+  rawReadmeUrl       String
+  season             String
+  fetchIntervalHours Int
+  enabled            Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  postings           JobPosting[]
+  fetchRuns          FetchRun[]
+}
+
+model JobPosting {
+  id                       String        @id @default(cuid())
+  sourceConfigId           String
+  sourceConfig             SourceConfig  @relation(fields: [sourceConfigId], references: [id], onDelete: Cascade)
+  season                   String
+  category                 String
+  company                  String
+  normalizedCompanyName    String
+  role                     String
+  locations                String
+  locationText             String
+  applicationUrls          String
+  primaryApplicationUrl    String?
+  simplifyUrl              String?
+  ageText                  String?
+  normalizedKey            String        @unique
+  rawRowContent            String?
+  firstSeenAt              DateTime
+  lastSeenAt               DateTime
+  isNewToday               Boolean       @default(false)
+  isActive                 Boolean       @default(true)
+  doesNotOfferSponsorship  Boolean       @default(false)
+  requiresUsCitizenship    Boolean       @default(false)
+  isClosed                 Boolean       @default(false)
+  isFaang                  Boolean       @default(false)
+  requiresAdvancedDegree   Boolean       @default(false)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  applications             Application[]
+
+  @@index([sourceConfigId])
+  @@index([season])
+  @@index([category])
+  @@index([normalizedCompanyName])
+  @@index([firstSeenAt])
+  @@index([isActive])
+  @@index([isNewToday])
+}
+
+model FetchRun {
+  id              String         @id @default(cuid())
+  sourceConfigId  String
+  sourceConfig    SourceConfig   @relation(fields: [sourceConfigId], references: [id], onDelete: Cascade)
+  startedAt       DateTime       @default(now())
+  completedAt     DateTime?
+  status          FetchRunStatus @default(RUNNING)
+  postingsFound   Int            @default(0)
+  newPostings     Int            @default(0)
+  updatedPostings Int            @default(0)
+  errorMessage    String?
+
+  @@index([sourceConfigId])
+  @@index([startedAt])
+  @@index([status])
+}
+
+model FollowedCompany {
+  id                    String   @id @default(cuid())
+  ownerKey              String   @default("local")
+  companyName           String
+  normalizedCompanyName String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([ownerKey, normalizedCompanyName])
+  @@index([ownerKey])
+}
+
+model Application {
+  id                             String             @id @default(cuid())
+  ownerKey                       String             @default("local")
+  jobPostingId                   String?
+  jobPosting                     JobPosting?         @relation(fields: [jobPostingId], references: [id], onDelete: SetNull)
+  company                        String
+  role                           String
+  jobPostingUrl                  String?
+  externalApplicationTrackingUrl String?
+  status                         ApplicationStatus  @default(APPLIED)
+  createdAt                      DateTime           @default(now())
+  updatedAt                      DateTime           @updatedAt
+  events                         ApplicationEvent[]
+
+  @@index([ownerKey])
+  @@index([jobPostingId])
+  @@index([status])
+}
+
+model ApplicationEvent {
+  id             String                @id @default(cuid())
+  ownerKey       String                @default("local")
+  applicationId  String
+  application    Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  previousStatus ApplicationStatus?
+  newStatus      ApplicationStatus
+  eventType      ApplicationEventType
+  eventDate      DateTime              @default(now())
+  createdAt      DateTime              @default(now())
+
+  @@index([ownerKey])
+  @@index([applicationId])
+  @@index([eventDate])
 }

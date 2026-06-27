@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import { config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./errors.js";
+import { apiRouter } from "./routes/api.js";
 
 export function createApp() {
   const app = express();
@@ -21,6 +22,7 @@ export function createApp() {
       timestamp: new Date().toISOString()
     });
   });
+  app.use("/api", apiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

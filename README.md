@@ -19,6 +19,7 @@ open a fresh shell or run `nvm use node` before installing dependencies or runni
 cp .env.example .env
 npm install
 npm run prisma:validate
+npm run prisma:migrate
 npm run typecheck
 ```
 
@@ -49,7 +50,8 @@ curl http://localhost:4000/api/health
 - `npm run typecheck`: typecheck shared, backend, and frontend code
 - `npm run prisma:generate`: generate Prisma client artifacts
 - `npm run prisma:validate`: validate the Prisma schema
-- `npm run prisma:migrate`: create and apply a local Prisma migration
+- `npm run prisma:migrate`: create the local SQLite file if needed, then run Prisma Migrate
+- `npm run prisma:migrate:deploy`: create the local SQLite file if needed, then apply checked-in migrations
 - `npm run prisma:studio`: open Prisma Studio
 
 ## Environment

@@ -10,6 +10,7 @@ GOAL.md
 # Build output
 dist/
 generated/
+server/src/generated/
 
 # Local databases
 *.db
