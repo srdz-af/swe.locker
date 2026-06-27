@@ -5,6 +5,7 @@ export type HealthResponse = {
 };
 
 export type ApplicationStatus = "APPLIED" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
+export type ApplicationEventType = "CREATED" | "STATUS_CHANGED";
 
 export type SourceConfigDto = {
   id: string;
@@ -60,4 +61,18 @@ export type ApplicationDto = {
   status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ApplicationActivityDayDto = {
+  date: string;
+  count: number;
+};
+
+export type CreateApplicationRequest = {
+  jobPostingId: string;
+  externalApplicationTrackingUrl?: string | null;
+};
+
+export type UpdateApplicationStatusRequest = {
+  status: ApplicationStatus;
 };

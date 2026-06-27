@@ -3,7 +3,13 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { normalizeCompanyName } from "../domain/normalize.js";
 import { HttpError } from "../errors.js";
-import { createApplicationFromPosting, deleteApplication } from "../services/applicationService.js";
+import {
+  createApplicationFromPosting,
+  deleteApplication,
+  listApplicationActivity,
+  listApplications,
+  updateApplicationStatus
+} from "../services/applicationService.js";
 import { followCompany, unfollowCompany } from "../services/followedCompanyService.js";
 import { toSourceConfigDto } from "../services/mappers.js";
 import { listPostings } from "../services/postingService.js";
@@ -58,6 +64,34 @@ apiRouter.post("/applications", async (request, response, next) => {
   }
 });
 
+apiRouter.get("/applications", async (_request, response, next) => {
+  try {
+    response.json(await listApplications());
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/applications/activity", async (_request, response, next) => {
+  try {
+    response.json(await listApplicationActivity());
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.patch("/applications/:applicationId/status", async (request, response, next) => {
+  try {
+    const body = updateApplicationStatusBodySchema.safeParse(request.body);
+    if (!body.success) {
+      throw new HttpError(400, "Invalid application status.");
+    }
+    response.json(await updateApplicationStatus(request.params.applicationId, body.data.status));
+  } catch (error) {
+    next(error);
+  }
+});
+
 apiRouter.delete("/applications/:applicationId", async (request, response, next) => {
   try {
     await deleteApplication(request.params.applicationId);
@@ -74,6 +108,10 @@ const followCompanyBodySchema = z.object({
 const createApplicationBodySchema = z.object({
   jobPostingId: z.string().min(1),
   externalApplicationTrackingUrl: z.string().url().optional().nullable()
+});
+
+const updateApplicationStatusBodySchema = z.object({
+  status: z.enum(["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"])
 });
 
 apiRouter.use((error: unknown, _request: Request, _response: Response, next: NextFunction) => {

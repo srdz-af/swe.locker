@@ -1,8 +1,12 @@
 import type {
+  ApplicationActivityDayDto,
   ApplicationDto,
+  ApplicationStatus,
+  CreateApplicationRequest,
   FollowedCompanyDto,
   JobPostingDto,
-  SourceConfigDto
+  SourceConfigDto,
+  UpdateApplicationStatusRequest
 } from "../../shared/src/index";
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api").replace(/\/$/, "");
@@ -30,10 +34,32 @@ export async function unfollowCompany(normalizedCompanyName: string) {
   });
 }
 
-export async function createApplication(jobPostingId: string) {
+export async function listApplications() {
+  return request<ApplicationDto[]>("/applications");
+}
+
+export async function getApplicationActivity() {
+  return request<ApplicationActivityDayDto[]>("/applications/activity");
+}
+
+export async function createApplication(jobPostingId: string, externalApplicationTrackingUrl?: string | null) {
+  const body: CreateApplicationRequest = {
+    jobPostingId,
+    externalApplicationTrackingUrl
+  };
+
   return request<ApplicationDto>("/applications", {
     method: "POST",
-    body: JSON.stringify({ jobPostingId })
+    body: JSON.stringify(body)
+  });
+}
+
+export async function updateApplicationStatus(applicationId: string, status: ApplicationStatus) {
+  const body: UpdateApplicationStatusRequest = { status };
+
+  return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(body)
   });
 }
 

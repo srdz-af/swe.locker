@@ -58,10 +58,12 @@ curl http://localhost:4000/api/health
 
 Copy `.env.example` to `.env` and adjust values as needed.
 
+Set `VITE_MAPBOX_ACCESS_TOKEN` to render the Carbon-themed spatial map in posting details.
+
 The source defaults point at the current SimplifyJobs Summer 2026 internships README on the `dev`
-branch. The scaffold does not fetch or parse postings yet; ingestion is part of the next milestone.
+branch. The backend refreshes the local snapshot on startup when empty and then on the configured
+interval.
 
 ## Current Scope
 
-This scaffold intentionally does not include authentication, SimplifyJobs ingestion, parser logic,
-feature API routes, application tracking models, or mock data as a source of truth.
+This app intentionally does not include authentication or mock data as a source of truth.
