@@ -6,6 +6,11 @@ import { toApplicationDto } from "./mappers.js";
 
 const activityWindowDays = 365;
 const applicationStatuses = new Set<ApplicationStatus>(["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"]);
+const applicationEventsInclude = {
+  events: {
+    orderBy: [{ eventDate: "asc" as const }, { createdAt: "asc" as const }]
+  }
+};
 
 export async function createApplicationFromPosting(input: {
   jobPostingId: string;
@@ -25,11 +30,26 @@ export async function createApplicationFromPosting(input: {
     where: {
       ownerKey: LOCAL_OWNER_KEY,
       jobPostingId: posting.id
-    }
+    },
+    include: applicationEventsInclude
   });
 
   if (existingApplication) {
-    return toApplicationDto(existingApplication);
+    if (!existingApplication.archivedAt) {
+      return toApplicationDto(existingApplication);
+    }
+
+    const restoredApplication = await prisma.application.update({
+      where: {
+        id: existingApplication.id
+      },
+      data: {
+        archivedAt: null
+      },
+      include: applicationEventsInclude
+    });
+
+    return toApplicationDto(restoredApplication);
   }
 
   const application = await prisma.application.create({
@@ -48,7 +68,8 @@ export async function createApplicationFromPosting(input: {
           eventType: "CREATED"
         }
       }
-    }
+    },
+    include: applicationEventsInclude
   });
 
   return toApplicationDto(application);
@@ -57,9 +78,11 @@ export async function createApplicationFromPosting(input: {
 export async function listApplications() {
   const applications = await prisma.application.findMany({
     where: {
-      ownerKey: LOCAL_OWNER_KEY
+      ownerKey: LOCAL_OWNER_KEY,
+      archivedAt: null
     },
-    orderBy: [{ updatedAt: "desc" }, { company: "asc" }, { role: "asc" }]
+    orderBy: [{ updatedAt: "desc" }, { company: "asc" }, { role: "asc" }],
+    include: applicationEventsInclude
   });
 
   return applications.map(toApplicationDto);
@@ -73,8 +96,10 @@ export async function updateApplicationStatus(applicationId: string, status: str
   const application = await prisma.application.findFirst({
     where: {
       id: applicationId,
-      ownerKey: LOCAL_OWNER_KEY
-    }
+      ownerKey: LOCAL_OWNER_KEY,
+      archivedAt: null
+    },
+    include: applicationEventsInclude
   });
 
   if (!application) {
@@ -86,7 +111,7 @@ export async function updateApplicationStatus(applicationId: string, status: str
   }
 
   const updatedApplication = await prisma.$transaction(async (transaction) => {
-    const updated = await transaction.application.update({
+    await transaction.application.update({
       where: {
         id: application.id
       },
@@ -105,6 +130,17 @@ export async function updateApplicationStatus(applicationId: string, status: str
       }
     });
 
+    const updated = await transaction.application.findUnique({
+      where: {
+        id: application.id
+      },
+      include: applicationEventsInclude
+    });
+
+    if (!updated) {
+      throw new HttpError(404, "Tracked application not found.");
+    }
+
     return updated;
   });
 
@@ -115,16 +151,26 @@ function isApplicationStatus(value: string): value is ApplicationStatus {
   return applicationStatuses.has(value as ApplicationStatus);
 }
 
-export async function listApplicationActivity() {
+export async function listApplicationActivity(input: { year?: number } = {}) {
   const today = getUtcDateOnly(new Date());
-  const startDate = new Date(today);
-  startDate.setUTCDate(today.getUTCDate() - activityWindowDays + 1);
+  const currentYear = today.getUTCFullYear();
+  const selectedYear = input.year ?? currentYear;
+  const startDate = selectedYear === currentYear ? new Date(today) : new Date(Date.UTC(selectedYear, 0, 1));
+  const endDate = selectedYear === currentYear ? new Date(today) : new Date(Date.UTC(selectedYear, 11, 31));
+
+  if (selectedYear === currentYear) {
+    startDate.setUTCDate(today.getUTCDate() - activityWindowDays + 1);
+  }
+
+  const endExclusive = new Date(endDate);
+  endExclusive.setUTCDate(endDate.getUTCDate() + 1);
 
   const events = await prisma.applicationEvent.findMany({
     where: {
       ownerKey: LOCAL_OWNER_KEY,
       eventDate: {
-        gte: startDate
+        gte: startDate,
+        lt: endExclusive
       }
     },
     select: {
@@ -138,7 +184,9 @@ export async function listApplicationActivity() {
     countsByDate.set(key, (countsByDate.get(key) ?? 0) + 1);
   }
 
-  return Array.from({ length: activityWindowDays }, (_, index) => {
+  const dayCount = Math.round((endExclusive.getTime() - startDate.getTime()) / 86_400_000);
+
+  return Array.from({ length: dayCount }, (_, index) => {
     const date = new Date(startDate);
     date.setUTCDate(startDate.getUTCDate() + index);
     const key = toDateKey(date);
@@ -167,6 +215,32 @@ export async function deleteApplication(applicationId: string) {
       id: application.id
     }
   });
+}
+
+export async function archiveApplication(applicationId: string) {
+  const application = await prisma.application.findFirst({
+    where: {
+      id: applicationId,
+      ownerKey: LOCAL_OWNER_KEY,
+      archivedAt: null
+    }
+  });
+
+  if (!application) {
+    throw new HttpError(404, "Tracked application not found.");
+  }
+
+  const archivedApplication = await prisma.application.update({
+    where: {
+      id: application.id
+    },
+    data: {
+      archivedAt: new Date()
+    },
+    include: applicationEventsInclude
+  });
+
+  return toApplicationDto(archivedApplication);
 }
 
 function getUtcDateOnly(date: Date) {

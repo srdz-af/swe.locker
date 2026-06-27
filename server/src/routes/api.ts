@@ -1,9 +1,11 @@
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
+import { normalizeExternalApplicationTrackingUrl } from "../domain/externalUrl.js";
 import { normalizeCompanyName } from "../domain/normalize.js";
 import { HttpError } from "../errors.js";
 import {
+  archiveApplication,
   createApplicationFromPosting,
   deleteApplication,
   listApplicationActivity,
@@ -57,8 +59,16 @@ apiRouter.delete("/followed-companies/:normalizedCompanyName", async (request, r
 
 apiRouter.post("/applications", async (request, response, next) => {
   try {
-    const body = createApplicationBodySchema.parse(request.body);
-    response.status(201).json(await createApplicationFromPosting(body));
+    const body = createApplicationBodySchema.safeParse(request.body);
+    if (!body.success) {
+      const hasExternalLinkIssue = body.error.issues.some((issue) => issue.path.includes("externalApplicationTrackingUrl"));
+      throw new HttpError(
+        400,
+        hasExternalLinkIssue ? "External tracking link must be a valid http(s) URL." : "Invalid request payload."
+      );
+    }
+
+    response.status(201).json(await createApplicationFromPosting(body.data));
   } catch (error) {
     next(error);
   }
@@ -72,9 +82,10 @@ apiRouter.get("/applications", async (_request, response, next) => {
   }
 });
 
-apiRouter.get("/applications/activity", async (_request, response, next) => {
+apiRouter.get("/applications/activity", async (request, response, next) => {
   try {
-    response.json(await listApplicationActivity());
+    const query = applicationActivityQuerySchema.parse(request.query);
+    response.json(await listApplicationActivity(query));
   } catch (error) {
     next(error);
   }
@@ -87,6 +98,14 @@ apiRouter.patch("/applications/:applicationId/status", async (request, response,
       throw new HttpError(400, "Invalid application status.");
     }
     response.json(await updateApplicationStatus(request.params.applicationId, body.data.status));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.patch("/applications/:applicationId/archive", async (request, response, next) => {
+  try {
+    response.json(await archiveApplication(request.params.applicationId));
   } catch (error) {
     next(error);
   }
@@ -105,13 +124,33 @@ const followCompanyBodySchema = z.object({
   companyName: z.string().min(1)
 });
 
+const externalApplicationTrackingUrlSchema = z.preprocess((value) => {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return normalizeExternalApplicationTrackingUrl(value);
+  } catch {
+    return value.trim();
+  }
+}, z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://")).optional().nullable());
+
 const createApplicationBodySchema = z.object({
   jobPostingId: z.string().min(1),
-  externalApplicationTrackingUrl: z.string().url().optional().nullable()
+  externalApplicationTrackingUrl: externalApplicationTrackingUrlSchema
 });
 
 const updateApplicationStatusBodySchema = z.object({
   status: z.enum(["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"])
+});
+
+const applicationActivityQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(9999).optional()
 });
 
 apiRouter.use((error: unknown, _request: Request, _response: Response, next: NextFunction) => {

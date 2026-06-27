@@ -59,8 +59,19 @@ export type ApplicationDto = {
   jobPostingUrl: string | null;
   externalApplicationTrackingUrl: string | null;
   status: ApplicationStatus;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  events: ApplicationEventDto[];
+};
+
+export type ApplicationEventDto = {
+  id: string;
+  eventType: ApplicationEventType;
+  previousStatus: ApplicationStatus | null;
+  newStatus: ApplicationStatus;
+  eventDate: string;
+  createdAt: string;
 };
 
 export type ApplicationActivityDayDto = {

@@ -38,20 +38,35 @@ export async function listApplications() {
   return request<ApplicationDto[]>("/applications");
 }
 
-export async function getApplicationActivity() {
-  return request<ApplicationActivityDayDto[]>("/applications/activity");
+export async function getApplicationActivity(year?: number) {
+  const query = year ? `?year=${encodeURIComponent(String(year))}` : "";
+  return request<ApplicationActivityDayDto[]>(`/applications/activity${query}`);
 }
 
 export async function createApplication(jobPostingId: string, externalApplicationTrackingUrl?: string | null) {
   const body: CreateApplicationRequest = {
     jobPostingId,
-    externalApplicationTrackingUrl
+    externalApplicationTrackingUrl: normalizeExternalApplicationTrackingUrl(externalApplicationTrackingUrl)
   };
 
   return request<ApplicationDto>("/applications", {
     method: "POST",
     body: JSON.stringify(body)
   });
+}
+
+function normalizeExternalApplicationTrackingUrl(value?: string | null) {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  return `https://${trimmedValue}`;
 }
 
 export async function updateApplicationStatus(applicationId: string, status: ApplicationStatus) {
@@ -66,6 +81,12 @@ export async function updateApplicationStatus(applicationId: string, status: App
 export async function deleteApplication(applicationId: string) {
   await request<void>(`/applications/${encodeURIComponent(applicationId)}`, {
     method: "DELETE"
+  });
+}
+
+export async function archiveApplication(applicationId: string) {
+  return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/archive`, {
+    method: "PATCH"
   });
 }
 

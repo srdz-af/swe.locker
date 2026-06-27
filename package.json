@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite --host 0.0.0.0",
-    "dev:api": "npm run prisma:generate --silent && tsx watch server/src/index.ts",
+    "dev:api": "npm run prisma:generate --silent && tsx watch --exclude server/src/generated --exclude generated --exclude dist server/src/index.ts",
     "build": "npm run prisma:generate && npm run build:shared && npm run build:api && npm run build:web",
     "build:web": "tsc -p client/tsconfig.json --noEmit && vite build",
     "build:api": "tsc -p server/tsconfig.json",
@@ -28,6 +28,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@carbon/charts": "^1.27.16",
+    "@carbon/charts-react": "^1.27.16",
     "@carbon/icons-react": "^11.82.0",
     "@carbon/react": "^1.110.0",
     "@carbon/styles": "^1.109.0",

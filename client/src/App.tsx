@@ -1,6 +1,19 @@
-import { memo, type KeyboardEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
+  memo,
+  type CSSProperties,
+  type KeyboardEvent,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
   Button,
+  Checkbox,
   Column,
   Content,
   Grid,
@@ -12,6 +25,8 @@ import {
   Loading,
   Modal,
   MultiSelect,
+  OverflowMenu,
+  OverflowMenuItem,
   Select,
   SelectItem,
   SkipToContent,
@@ -26,8 +41,11 @@ import {
   Tabs
 } from "@carbon/react";
 import { Add, Launch, Moon, Star, StarFilled, Sun } from "@carbon/icons-react";
+import { AlluvialChart } from "@carbon/charts-react";
+import type { AlluvialChartOptions, ChartTabularData } from "@carbon/charts-react";
 import type { ApplicationActivityDayDto, ApplicationDto, ApplicationStatus, JobPostingDto, SourceConfigDto } from "../../shared/src/index";
 import {
+  archiveApplication,
   createApplication,
   deleteApplication,
   followCompany,
@@ -38,6 +56,7 @@ import {
   updateApplicationStatus,
   unfollowCompany
 } from "./api";
+import "@carbon/charts-react/styles.css";
 import "./styles.scss";
 
 type ThemeMode = "light" | "dark";
@@ -80,14 +99,29 @@ const postingTagFilters: PostingTagFilter[] = [
 ];
 
 const sponsorshipFilters: PostingFacetFilter[] = [
-  { id: "sponsorship-available", label: "Sponsorship available", matches: (posting) => !posting.doesNotOfferSponsorship },
-  { id: "no-sponsorship", label: "No sponsorship", matches: (posting) => posting.doesNotOfferSponsorship }
+  { id: "no-sponsorship", label: "Does not offer sponsorship", matches: (posting) => posting.doesNotOfferSponsorship }
 ];
 
 const citizenshipFilters: PostingFacetFilter[] = [
-  { id: "no-us-citizenship", label: "No US citizenship required", matches: (posting) => !posting.requiresUsCitizenship },
   { id: "us-citizenship", label: "US citizenship required", matches: (posting) => posting.requiresUsCitizenship }
 ];
+
+const alluvialOutcomeColors = {
+  "In progress": "#0f62fe",
+  Offer: "#24a148",
+  Rejected: "#da1e28"
+};
+
+type AlluvialLinkElement = SVGPathElement & {
+  __data__?: {
+    group?: string;
+  };
+};
+
+type GeocodeResult = {
+  center: [number, number];
+  isCompanySpecific: boolean;
+};
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") {
@@ -105,6 +139,10 @@ function getInitialTheme(): ThemeMode {
 
 function normalizeFilterText(value: string) {
   return value.trim().toLowerCase();
+}
+
+function compactSearchText(value: string | undefined) {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function matchesPostingFilters(
@@ -248,6 +286,14 @@ function getConcreteMapLocation(posting: JobPostingDto) {
   return posting.locations.find((location) => !isRemoteLocation(location));
 }
 
+function getMapGeocodeQueries(posting: JobPostingDto, location: string) {
+  const company = compactSearchText(posting.company);
+  const place = compactSearchText(location);
+  const queries = company ? [`${company}, ${place}`, place] : [place];
+
+  return Array.from(new Set(queries.filter(Boolean)));
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
     month: "short",
@@ -258,6 +304,17 @@ function formatDate(value: string) {
 
 function getApplicationStatusLabel(status: ApplicationStatus) {
   return applicationStatuses.find((option) => option.status === status)?.label ?? status;
+}
+
+function getApplicationStatusCounts(applications: ApplicationDto[]) {
+  const counts = new Map<ApplicationStatus, number>();
+  for (const option of applicationStatuses) {
+    counts.set(option.status, 0);
+  }
+  for (const application of applications) {
+    counts.set(application.status, (counts.get(application.status) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function getActivityLevel(count: number, maxCount: number) {
@@ -286,8 +343,148 @@ function getActivityWeeks(days: ApplicationActivityDayDto[]) {
   return Array.from({ length: weekCount }, (_, weekIndex) => paddedDays.slice(weekIndex * 7, weekIndex * 7 + 7));
 }
 
-async function geocodeLocation(location: string, signal: AbortSignal) {
-  const cacheKey = normalizeFilterText(location);
+function getActivityMonthLabels(weeks: Array<Array<ApplicationActivityDayDto | null>>) {
+  const labels: Array<{ label: string; weekIndex: number }> = [];
+  let previousMonth: number | null = null;
+
+  weeks.forEach((week, weekIndex) => {
+    const firstDay = week.find((day): day is ApplicationActivityDayDto => Boolean(day));
+    if (!firstDay) {
+      return;
+    }
+
+    const date = new Date(`${firstDay.date}T00:00:00.000Z`);
+    const month = date.getUTCMonth();
+
+    if (month !== previousMonth) {
+      labels.push({
+        label: date.toLocaleString(undefined, { month: "short", timeZone: "UTC" }),
+        weekIndex
+      });
+      previousMonth = month;
+    }
+  });
+
+  return labels;
+}
+
+function getActivitySummaryLabel(totalActivity: number) {
+  const unit = totalActivity === 1 ? "tracker update" : "tracker updates";
+  return `${totalActivity} ${unit} in the last year`;
+}
+
+function formatActivityDate(dateKey: string) {
+  return new Date(`${dateKey}T00:00:00.000Z`).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric"
+  });
+}
+
+function formatApplicationCount(value: number) {
+  return `${value} application${value === 1 ? "" : "s"}`;
+}
+
+function formatApplicationTooltipValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return formatApplicationCount(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    const countMatch = trimmedValue.match(/^(-?\d+(?:\.\d+)?)\s*(.*)$/);
+
+    if (countMatch) {
+      const count = Number(countMatch[1]);
+      const unit = countMatch[2].trim().toLowerCase();
+
+      if (Number.isFinite(count) && (!unit || unit.startsWith("application"))) {
+        return formatApplicationCount(count);
+      }
+    }
+
+    return trimmedValue;
+  }
+
+  if (value && typeof value === "object" && "value" in value) {
+    return formatApplicationTooltipValue((value as { value?: unknown }).value);
+  }
+
+  return "0 applications";
+}
+
+function getApplicationReviewStage(application: ApplicationDto) {
+  if (application.status === "APPLIED") {
+    return "CV pending";
+  }
+
+  if (application.status === "REJECTED") {
+    return hasReachedInterview(application) ? "Interview" : "CV rejected";
+  }
+
+  return "Interview";
+}
+
+function getApplicationResultStage(application: ApplicationDto) {
+  if (application.status === "OFFER" || application.status === "HIRED") {
+    return "Offer";
+  }
+
+  if (application.status === "REJECTED") {
+    return "Rejected";
+  }
+
+  return "In progress";
+}
+
+function hasReachedInterview(application: ApplicationDto) {
+  if (application.status === "INTERVIEW" || application.status === "OFFER" || application.status === "HIRED") {
+    return true;
+  }
+
+  return (application.events ?? []).some(
+    (event) =>
+      event.newStatus === "INTERVIEW" ||
+      event.newStatus === "OFFER" ||
+      event.newStatus === "HIRED" ||
+      event.previousStatus === "INTERVIEW" ||
+      event.previousStatus === "OFFER" ||
+      event.previousStatus === "HIRED"
+  );
+}
+
+function incrementAlluvialLink(counts: Map<string, { group: string; source: string; target: string; value: number }>, group: string, source: string, target: string) {
+  const key = `${source}\u0000${target}\u0000${group}`;
+  const current = counts.get(key);
+
+  if (current) {
+    current.value += 1;
+    return;
+  }
+
+  counts.set(key, {
+    group,
+    source,
+    target,
+    value: 1
+  });
+}
+
+function getAlluvialOutcomeColor(group: string | undefined) {
+  return alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? alluvialOutcomeColors["In progress"];
+}
+
+function applyAlluvialOutcomeColors(container: HTMLElement) {
+  const links = container.querySelectorAll<AlluvialLinkElement>("path.link");
+
+  for (const link of links) {
+    link.style.stroke = getAlluvialOutcomeColor(link.__data__?.group);
+  }
+}
+
+async function geocodeQuery(query: string, signal: AbortSignal) {
+  const cacheKey = normalizeFilterText(query);
   const cachedLocation = geocodeCache.get(cacheKey);
   if (cachedLocation) {
     return cachedLocation;
@@ -297,7 +494,7 @@ async function geocodeLocation(location: string, signal: AbortSignal) {
     access_token: mapboxAccessToken,
     limit: "1"
   });
-  const request = fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(location)}.json?${params}`, {
+  const request = fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?${params}`, {
     signal
   })
     .then(async (response) => {
@@ -322,12 +519,37 @@ async function geocodeLocation(location: string, signal: AbortSignal) {
   return request;
 }
 
-function CarbonSpatialMap({ location, posting, themeMode }: { location: string | undefined; posting: JobPostingDto; themeMode: ThemeMode }) {
+async function geocodePostingLocation(posting: JobPostingDto, location: string, signal: AbortSignal): Promise<GeocodeResult | null> {
+  const queries = getMapGeocodeQueries(posting, location);
+
+  for (const [queryIndex, query] of queries.entries()) {
+    const center = await geocodeQuery(query, signal);
+    if (center) {
+      return {
+        center,
+        isCompanySpecific: queryIndex === 0 && queries.length > 1
+      };
+    }
+  }
+
+  return null;
+}
+
+const CarbonSpatialMap = memo(function CarbonSpatialMap({
+  location,
+  posting,
+  themeMode
+}: {
+  location: string | undefined;
+  posting: JobPostingDto;
+  themeMode: ThemeMode;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("mapbox-gl").Map | null>(null);
   const markerRef = useRef<import("mapbox-gl").Marker | null>(null);
   const mapboxRef = useRef<MapboxGl | null>(null);
   const [mapMessage, setMapMessage] = useState<string | null>(mapboxAccessToken ? "Loading map" : "Mapbox token required");
+  const [mapReadyVersion, setMapReadyVersion] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current || !mapboxAccessToken || mapRef.current) {
@@ -345,7 +567,7 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
 
       mapboxRef.current = mapboxgl;
       mapboxgl.accessToken = mapboxAccessToken;
-      mapRef.current = new mapboxgl.Map({
+      const map = new mapboxgl.Map({
         attributionControl: false,
         center: worldMapView.center,
         container: containerRef.current,
@@ -354,9 +576,16 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
         style: carbonMapStyles[themeMode],
         zoom: worldMapView.zoom
       });
-      mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-right");
-      mapRef.current.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-left");
-      setMapMessage(null);
+      mapRef.current = map;
+      map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-left");
+      map.once("load", () => {
+        if (!isMounted) {
+          return;
+        }
+
+        setMapReadyVersion((currentVersion) => currentVersion + 1);
+        setMapMessage(null);
+      });
     }
 
     void initializeMap().catch((error: unknown) => {
@@ -385,7 +614,7 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
   }, [themeMode]);
 
   useEffect(() => {
-    if (!mapboxAccessToken) {
+    if (!mapboxAccessToken || mapReadyVersion === 0) {
       return;
     }
 
@@ -406,13 +635,13 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
       }
 
       setMapMessage("Finding location");
-      const resolvedCenter = await geocodeLocation(location, abortController.signal);
+      const resolvedLocation = await geocodePostingLocation(posting, location, abortController.signal);
 
       if (abortController.signal.aborted) {
         return;
       }
 
-      if (!resolvedCenter) {
+      if (!resolvedLocation) {
         markerRef.current?.remove();
         markerRef.current = null;
         map.flyTo({ center: worldMapView.center, zoom: worldMapView.zoom });
@@ -425,8 +654,8 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
       }
 
       markerRef.current?.remove();
-      markerRef.current = new mapboxRef.current.Marker({ color: "#0f62fe" }).setLngLat(resolvedCenter).addTo(map);
-      map.flyTo({ center: resolvedCenter, zoom: 9 });
+      markerRef.current = new mapboxRef.current.Marker({ color: "#0f62fe" }).setLngLat(resolvedLocation.center).addTo(map);
+      map.flyTo({ center: resolvedLocation.center, zoom: resolvedLocation.isCompanySpecific ? 12 : 9 });
       setMapMessage(null);
     }
 
@@ -439,7 +668,7 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
     return () => {
       abortController.abort();
     };
-  }, [location, posting.id]);
+  }, [location, mapReadyVersion, posting.company, posting.id]);
 
   if (!mapboxAccessToken) {
     return (
@@ -455,9 +684,9 @@ function CarbonSpatialMap({ location, posting, themeMode }: { location: string |
       {mapMessage ? <div className="map-message">{mapMessage}</div> : null}
     </div>
   );
-}
+});
 
-function VisualizationPanel({ posting, themeMode }: { posting: JobPostingDto | null; themeMode: ThemeMode }) {
+const VisualizationPanel = memo(function VisualizationPanel({ posting, themeMode }: { posting: JobPostingDto | null; themeMode: ThemeMode }) {
   if (!posting) {
     return (
       <Tile className="visualization-tile">
@@ -478,8 +707,8 @@ function VisualizationPanel({ posting, themeMode }: { posting: JobPostingDto | n
     { label: "Status", value: posting.isClosed ? "Closed" : posting.isActive ? "Active" : "Inactive" },
     { label: "First", value: formatDate(posting.firstSeenAt) },
     { label: "Last", value: formatDate(posting.lastSeenAt) },
-    { label: "Sponsorship", value: posting.doesNotOfferSponsorship ? "No sponsorship" : "Sponsorship available" },
-    { label: "Citizenship", value: posting.requiresUsCitizenship ? "US citizenship required" : "No US citizenship required" }
+    ...(posting.doesNotOfferSponsorship ? [{ label: "Sponsorship", value: "Does not offer sponsorship" }] : []),
+    ...(posting.requiresUsCitizenship ? [{ label: "Citizenship", value: "US citizenship required" }] : [])
   ];
   const attributes = [
     posting.isNewToday ? "New" : null,
@@ -541,89 +770,354 @@ function VisualizationPanel({ posting, themeMode }: { posting: JobPostingDto | n
       </div>
     </Tile>
   );
-}
+});
 
-function ApplicationActivityHeatmap({ days }: { days: ApplicationActivityDayDto[] }) {
-  const weeks = useMemo(() => getActivityWeeks(days), [days]);
-  const totalActivity = useMemo(() => days.reduce((total, day) => total + day.count, 0), [days]);
-  const maxCount = useMemo(() => Math.max(0, ...days.map((day) => day.count)), [days]);
+const TrackingResultsTile = memo(function TrackingResultsTile({
+  applications = [],
+  isChartActive = false,
+  themeMode
+}: {
+  applications?: ApplicationDto[];
+  isChartActive?: boolean;
+  themeMode: ThemeMode;
+}) {
+  const [canRenderAlluvial, setCanRenderAlluvial] = useState(false);
+  const [showAlluvialLabels, setShowAlluvialLabels] = useState(true);
+  const trackingResultsChartRef = useRef<HTMLDivElement | null>(null);
+  const alluvialChartData = useMemo<ChartTabularData>(() => {
+    const linkCounts = new Map<string, { group: string; source: string; target: string; value: number }>();
+
+    for (const application of applications) {
+      const reviewStage = getApplicationReviewStage(application);
+      const resultStage = getApplicationResultStage(application);
+
+      incrementAlluvialLink(linkCounts, resultStage, application.company, reviewStage);
+      incrementAlluvialLink(linkCounts, resultStage, reviewStage, resultStage);
+    }
+
+    return Array.from(linkCounts.values()).sort(
+      (left, right) =>
+        left.source.localeCompare(right.source) || left.target.localeCompare(right.target) || left.group.localeCompare(right.group)
+    );
+  }, [applications]);
+  const alluvialCompanies = useMemo(() => Array.from(new Set(applications.map((application) => application.company))).sort(), [applications]);
+  const alluvialReviewStages = useMemo(
+    () => Array.from(new Set(applications.map(getApplicationReviewStage))).sort(),
+    [applications]
+  );
+  const alluvialResultStages = useMemo(
+    () => Array.from(new Set(applications.map(getApplicationResultStage))).sort(),
+    [applications]
+  );
+  const alluvialChartHeight = `${Math.max(16, Math.min(26, 8 + alluvialCompanies.length))}rem`;
+  const trackingResultsChartStyle = { "--tracking-results-chart-height": alluvialChartHeight } as CSSProperties;
+  const alluvialChartKey = useMemo(
+    () => `${themeMode}-${alluvialChartData.map((item) => `${item.group}:${item.source}:${item.target}:${item.value}`).join("|")}`,
+    [alluvialChartData, themeMode]
+  );
+  const alluvialChartOptions = useMemo<AlluvialChartOptions>(
+    () => ({
+      accessibility: {
+        svgAriaLabel: "Tracked applications by company, review stage, and result"
+      },
+      alluvial: {
+        nodes: [
+          ...alluvialCompanies.map((company) => ({
+            name: company,
+            category: "Company"
+          })),
+          ...alluvialReviewStages.map((stage) => ({
+            name: stage,
+            category: "Review"
+          })),
+          ...alluvialResultStages.map((result) => ({
+            name: result,
+            category: "Result"
+          }))
+        ],
+        nodeAlignment: "left",
+        nodePadding: 12,
+        units: "applications"
+      },
+      data: {
+        groupMapsTo: "group"
+      },
+      color: {
+        scale: alluvialOutcomeColors
+      },
+      getStrokeColor: (group, _label, _data, defaultStrokeColor) =>
+        alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? defaultStrokeColor ?? alluvialOutcomeColors["In progress"],
+      height: alluvialChartHeight,
+      legend: {
+        enabled: false
+      },
+      theme: themeMode === "dark" ? "g100" : "white",
+      toolbar: {
+        enabled: false
+      },
+      tooltip: {
+        valueFormatter: (value) => formatApplicationTooltipValue(value)
+      }
+    }),
+    [alluvialChartHeight, alluvialCompanies, alluvialResultStages, alluvialReviewStages, themeMode]
+  );
+
+  useEffect(() => {
+    if (alluvialChartData.length === 0) {
+      setCanRenderAlluvial(false);
+      return;
+    }
+
+    if (!isChartActive || canRenderAlluvial) {
+      return;
+    }
+
+    setCanRenderAlluvial(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setCanRenderAlluvial(true);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [alluvialChartData.length, canRenderAlluvial, isChartActive]);
+
+  useEffect(() => {
+    if (!canRenderAlluvial || !trackingResultsChartRef.current) {
+      return;
+    }
+
+    const chartContainer = trackingResultsChartRef.current;
+    const frameId = window.requestAnimationFrame(() => applyAlluvialOutcomeColors(chartContainer));
+    const observer = new MutationObserver(() => applyAlluvialOutcomeColors(chartContainer));
+    observer.observe(chartContainer, { childList: true, subtree: true });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [alluvialChartData, canRenderAlluvial, themeMode]);
 
   return (
-    <Tile className="activity-tile">
-      <div className="section-header">
-        <div>
-          <h2>Application activity</h2>
-          <p>{totalActivity} tracker updates in the last 365 days</p>
-        </div>
-      </div>
-
-      <div className="activity-heatmap" aria-label="Application activity heatmap">
-        {weeks.map((week, weekIndex) => (
-          <div className="activity-week" key={weekIndex}>
-            {Array.from({ length: 7 }, (_, dayIndex) => {
-              const day = week[dayIndex] ?? null;
-              if (!day) {
-                return <span className="activity-cell activity-cell--empty" key={dayIndex} aria-hidden="true" />;
-              }
-
-              return (
-                <span
-                  className={`activity-cell activity-cell--level-${getActivityLevel(day.count, maxCount)}`}
-                  key={day.date}
-                  title={`${day.date}: ${day.count} tracker update${day.count === 1 ? "" : "s"}`}
-                  aria-label={`${day.date}: ${day.count} tracker update${day.count === 1 ? "" : "s"}`}
-                />
-              );
-            })}
+    <Tile className="tracking-results-tile">
+      <div className="tracking-results-panel">
+        <div className="section-header">
+          <div>
+            <h2>Tracking results</h2>
+            <p>Company to review to outcome</p>
           </div>
-        ))}
-      </div>
-
-      <div className="activity-legend" aria-hidden="true">
-        <span>Less</span>
-        {[0, 1, 2, 3, 4].map((level) => (
-          <span className={`activity-cell activity-cell--level-${level}`} key={level} />
-        ))}
-        <span>More</span>
+          <div className="tracking-results-controls">
+            <Checkbox
+              checked={showAlluvialLabels}
+              id="show-alluvial-labels"
+              labelText="Show labels"
+              onChange={(_event, { checked }) => setShowAlluvialLabels(checked)}
+            />
+          </div>
+        </div>
+        {canRenderAlluvial ? (
+          <div
+            className={`tracking-results-chart${showAlluvialLabels ? " tracking-results-chart--labels-visible" : ""}`}
+            ref={trackingResultsChartRef}
+            style={trackingResultsChartStyle}
+          >
+            <AlluvialChart data={alluvialChartData} key={alluvialChartKey} options={alluvialChartOptions} />
+          </div>
+        ) : alluvialChartData.length > 0 ? (
+          <div
+            className="tracking-results-chart tracking-results-chart--placeholder"
+            style={trackingResultsChartStyle}
+            aria-hidden="true"
+          />
+        ) : (
+          <div className="tracking-results-empty">No tracked applications yet.</div>
+        )}
       </div>
     </Tile>
   );
-}
+});
+
+const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapTile({
+  days = []
+}: {
+  days?: ApplicationActivityDayDto[];
+}) {
+  const weeks = useMemo(() => getActivityWeeks(days), [days]);
+  const monthLabels = useMemo(() => getActivityMonthLabels(weeks), [weeks]);
+  const totalActivity = useMemo(() => days.reduce((total, day) => total + day.count, 0), [days]);
+  const maxCount = useMemo(() => Math.max(0, ...days.map((day) => day.count)), [days]);
+  const activityCalendarGridStyle = { "--activity-week-count": Math.max(1, weeks.length) } as CSSProperties;
+
+  return (
+    <Tile className="activity-heatmap-tile">
+      <div className="section-header">
+        <div>
+          <h2>Application activity</h2>
+          <p>{getActivitySummaryLabel(totalActivity)}</p>
+        </div>
+      </div>
+
+      <div className="activity-github-layout">
+        <div className="activity-calendar-panel">
+          <div className="activity-calendar-scroll">
+            <div className="activity-calendar-grid" style={activityCalendarGridStyle}>
+              <div className="activity-month-labels" aria-hidden="true">
+                {monthLabels.map((month) => (
+                  <span key={`${month.label}-${month.weekIndex}`} style={{ gridColumn: String(month.weekIndex + 1) }}>
+                    {month.label}
+                  </span>
+                ))}
+              </div>
+              <div className="activity-weekday-labels" aria-hidden="true">
+                <span style={{ gridRow: "2" }}>Mon</span>
+                <span style={{ gridRow: "4" }}>Wed</span>
+                <span style={{ gridRow: "6" }}>Fri</span>
+              </div>
+              <div className="activity-heatmap" aria-label="Application activity heatmap">
+                {weeks.map((week, weekIndex) => (
+                  <div className="activity-week" key={weekIndex}>
+                    {Array.from({ length: 7 }, (_, dayIndex) => {
+                      const day = week[dayIndex] ?? null;
+                      if (!day) {
+                        return <span className="activity-cell activity-cell--empty" key={dayIndex} aria-hidden="true" />;
+                      }
+
+                      const updateUnit = day.count === 1 ? "tracker update" : "tracker updates";
+                      const activityLabel = `${formatActivityDate(day.date)}: ${day.count} ${updateUnit}`;
+
+                      return (
+                        <span
+                          className={`activity-cell activity-cell--level-${getActivityLevel(day.count, maxCount)}`}
+                          key={day.date}
+                          title={activityLabel}
+                          aria-label={activityLabel}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="activity-calendar-footer">
+            <span>Application tracker updates</span>
+            <div className="activity-legend" aria-hidden="true">
+              <span>Less</span>
+              {[0, 1, 2, 3, 4].map((level) => (
+                <span className={`activity-cell activity-cell--level-${level}`} key={level} />
+              ))}
+              <span>More</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </Tile>
+  );
+});
+
+const StatsOverviewTile = memo(function StatsOverviewTile({ applications, postings }: { applications: ApplicationDto[]; postings: JobPostingDto[] }) {
+  const applicationCountsByStatus = useMemo(() => getApplicationStatusCounts(applications), [applications]);
+  const stats = useMemo(
+    () => [
+      { label: "Total postings", value: postings.length },
+      { label: "New today", value: postings.filter((posting) => posting.isNewToday).length },
+      { label: "Applied", value: applicationCountsByStatus.get("APPLIED") ?? 0 },
+      { label: "Interview", value: applicationCountsByStatus.get("INTERVIEW") ?? 0 },
+      { label: "Offer", value: applicationCountsByStatus.get("OFFER") ?? 0 },
+      { label: "Hired", value: applicationCountsByStatus.get("HIRED") ?? 0 },
+      { label: "Rejected", value: applicationCountsByStatus.get("REJECTED") ?? 0 }
+    ],
+    [applicationCountsByStatus, postings]
+  );
+
+  return (
+    <Tile className="stats-overview-tile">
+      <div className="section-header">
+        <div>
+          <h2>Overview</h2>
+          <p>Posting volume and active application outcomes</p>
+        </div>
+      </div>
+      <div className="stats-strip" aria-label="Application and posting stats">
+        {stats.map((stat) => (
+          <div className="stats-strip__item" key={stat.label}>
+            <span>{stat.label}</span>
+            <strong>{stat.value}</strong>
+          </div>
+        ))}
+      </div>
+    </Tile>
+  );
+});
+
+const StatsPanel = memo(function StatsPanel({
+  activityDays,
+  applications,
+  isChartActive,
+  postings,
+  themeMode
+}: {
+  activityDays: ApplicationActivityDayDto[];
+  applications: ApplicationDto[];
+  isChartActive: boolean;
+  postings: JobPostingDto[];
+  themeMode: ThemeMode;
+}) {
+  return (
+    <div className="stats-stack">
+      <div className="stats-top-row">
+        <TrackingResultsTile applications={applications} isChartActive={isChartActive} themeMode={themeMode} />
+        <StatsOverviewTile applications={applications} postings={postings} />
+      </div>
+      <ApplicationActivityHeatmapTile days={activityDays} />
+    </div>
+  );
+});
 
 function ApplicationCard({
   application,
+  onArchive,
+  onDelete,
   onStatusChange
 }: {
   application: ApplicationDto;
+  onArchive: (application: ApplicationDto) => Promise<void>;
+  onDelete: (application: ApplicationDto) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
-  const statusLabel = getApplicationStatusLabel(application.status);
-
   return (
     <article className="application-card">
       <div className="application-card__header">
         <div>
           <h3>{application.company}</h3>
-          <p>{application.role}</p>
+          <p>
+            {application.externalApplicationTrackingUrl ? (
+              <a
+                className="application-card__title-link"
+                href={application.externalApplicationTrackingUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {application.role}
+              </a>
+            ) : (
+              application.role
+            )}
+          </p>
         </div>
-        <Tag type="gray">{statusLabel}</Tag>
+        <OverflowMenu
+          aria-label={`Actions for ${application.company} ${application.role}`}
+          className="application-card__menu"
+          flipped
+          iconDescription="Application actions"
+          size="sm"
+        >
+          <OverflowMenuItem itemText="Archive" onClick={() => void onArchive(application)} />
+          <OverflowMenuItem hasDivider isDelete itemText="Delete" onClick={() => void onDelete(application)} />
+        </OverflowMenu>
       </div>
 
       <div className="application-card__meta">
         <span>Updated {formatDate(application.updatedAt)}</span>
-      </div>
-
-      <div className="application-card__links">
-        {application.jobPostingUrl ? (
-          <Button kind="ghost" size="sm" renderIcon={Launch} href={application.jobPostingUrl} target="_blank">
-            Posting
-          </Button>
-        ) : null}
-        {application.externalApplicationTrackingUrl ? (
-          <Button kind="ghost" size="sm" renderIcon={Launch} href={application.externalApplicationTrackingUrl} target="_blank">
-            Tracker
-          </Button>
-        ) : null}
       </div>
 
       <Select
@@ -642,15 +1136,17 @@ function ApplicationCard({
   );
 }
 
-function ApplicationTrackerPanel({
-  applications,
-  activityDays,
+const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
+  applications = [],
   isLoading,
+  onArchive,
+  onDelete,
   onStatusChange
 }: {
-  applications: ApplicationDto[];
-  activityDays: ApplicationActivityDayDto[];
+  applications?: ApplicationDto[];
   isLoading: boolean;
+  onArchive: (application: ApplicationDto) => Promise<void>;
+  onDelete: (application: ApplicationDto) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
   const applicationsByStatus = useMemo(() => {
@@ -668,8 +1164,6 @@ function ApplicationTrackerPanel({
 
   return (
     <div className="tracker-stack">
-      <ApplicationActivityHeatmap days={activityDays} />
-
       <Tile className="tracker-tile">
         <div className="section-header">
           <div>
@@ -693,7 +1187,13 @@ function ApplicationTrackerPanel({
 
                 <div className="application-card-list">
                   {columnApplications.map((application) => (
-                    <ApplicationCard application={application} key={application.id} onStatusChange={onStatusChange} />
+                    <ApplicationCard
+                      application={application}
+                      key={application.id}
+                      onArchive={onArchive}
+                      onDelete={onDelete}
+                      onStatusChange={onStatusChange}
+                    />
                   ))}
 
                   {!isLoading && columnApplications.length === 0 ? <p className="kanban-empty">No applications</p> : null}
@@ -705,7 +1205,7 @@ function ApplicationTrackerPanel({
       </Tile>
     </div>
   );
-}
+});
 
 function App() {
   const didLoadInitialSnapshot = useRef(false);
@@ -714,6 +1214,8 @@ function App() {
   const [postings, setPostings] = useState<JobPostingDto[]>([]);
   const [applications, setApplications] = useState<ApplicationDto[]>([]);
   const [activityDays, setActivityDays] = useState<ApplicationActivityDayDto[]>([]);
+  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  const [hasOpenedStats, setHasOpenedStats] = useState(false);
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(null);
   const [pendingTrackPosting, setPendingTrackPosting] = useState<JobPostingDto | null>(null);
   const [externalTrackingUrl, setExternalTrackingUrl] = useState("");
@@ -785,29 +1287,35 @@ function App() {
     () => postings.find((posting) => posting.id === selectedPostingId) ?? null,
     [postings, selectedPostingId]
   );
-  const applicationCountsByStatus = useMemo(() => {
-    const counts = new Map<ApplicationStatus, number>();
-    for (const option of applicationStatuses) {
-      counts.set(option.status, 0);
-    }
-    for (const application of applications) {
-      counts.set(application.status, (counts.get(application.status) ?? 0) + 1);
-    }
-    return counts;
-  }, [applications]);
-  const statItems = useMemo(() => {
-    return [
-      { label: "Total postings", value: postings.length },
-      { label: "New today", value: postings.filter((posting) => posting.isNewToday).length },
-      { label: "Followed matches", value: postings.filter((posting) => posting.isFollowed).length },
-      { label: "Tracked applications", value: applications.length },
-      { label: "Applied", value: applicationCountsByStatus.get("APPLIED") ?? 0 },
-      { label: "Interview", value: applicationCountsByStatus.get("INTERVIEW") ?? 0 },
-      { label: "Offer", value: applicationCountsByStatus.get("OFFER") ?? 0 },
-      { label: "Hired", value: applicationCountsByStatus.get("HIRED") ?? 0 },
-      { label: "Rejected", value: applicationCountsByStatus.get("REJECTED") ?? 0 }
-    ];
-  }, [applicationCountsByStatus, applications.length, postings]);
+  const pageHeader = useMemo(
+    () => {
+      if (selectedTabIndex === 0) {
+        return {
+          title: "Postings",
+          subtitle: sourceConfig?.displayName ?? "SimplifyJobs internship postings",
+          metricLabel: "Shown",
+          metricValue: `${visiblePostings.length}/${postings.length}`
+        };
+      }
+
+      if (selectedTabIndex === 1) {
+        return {
+          title: "Applications",
+          subtitle: "Application tracker Kanban board",
+          metricLabel: "Tracked",
+          metricValue: String(applications.length)
+        };
+      }
+
+      return {
+        title: "Stats",
+        subtitle: "Posting and application tracker analytics",
+        metricLabel: "Postings",
+        metricValue: String(postings.length)
+      };
+    },
+    [applications.length, postings.length, selectedTabIndex, sourceConfig?.displayName, visiblePostings.length]
+  );
 
   useEffect(() => {
     document.documentElement.dataset.appTheme = themeMode;
@@ -857,9 +1365,7 @@ function App() {
         setApplications((currentApplications) =>
           currentApplications.filter((application) => application.id !== posting.trackedApplicationId)
         );
-        void refreshApplicationActivity().catch((activityError: unknown) => {
-          setError(activityError instanceof Error ? activityError.message : "Could not refresh application activity.");
-        });
+        await refreshApplicationActivity();
         setNotice(`${posting.company} application removed from tracking.`);
       } else {
         setPendingTrackPosting(posting);
@@ -933,6 +1439,47 @@ function App() {
     },
     [refreshApplicationActivity]
   );
+  const removeApplicationFromTracker = useCallback((application: ApplicationDto) => {
+    setApplications((currentApplications) =>
+      currentApplications.filter((currentApplication) => currentApplication.id !== application.id)
+    );
+    if (application.jobPostingId) {
+      setPostings((currentPostings) =>
+        currentPostings.map((currentPosting) =>
+          currentPosting.id === application.jobPostingId
+            ? { ...currentPosting, isTracked: false, trackedApplicationId: null }
+            : currentPosting
+        )
+      );
+    }
+  }, []);
+  const handleApplicationArchive = useCallback(
+    async (application: ApplicationDto) => {
+      setError(null);
+      try {
+        await archiveApplication(application.id);
+        removeApplicationFromTracker(application);
+        setNotice(`${application.company} application archived.`);
+      } catch (archiveError) {
+        setError(archiveError instanceof Error ? archiveError.message : "Could not archive application.");
+      }
+    },
+    [removeApplicationFromTracker]
+  );
+  const handleApplicationDelete = useCallback(
+    async (application: ApplicationDto) => {
+      setError(null);
+      try {
+        await deleteApplication(application.id);
+        removeApplicationFromTracker(application);
+        await refreshApplicationActivity();
+        setNotice(`${application.company} application deleted.`);
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Could not delete application.");
+      }
+    },
+    [refreshApplicationActivity, removeApplicationFromTracker]
+  );
   const handleSelectPosting = useCallback((posting: JobPostingDto) => {
     setSelectedPostingId(posting.id);
   }, []);
@@ -958,161 +1505,172 @@ function App() {
       <Content id="main-content" className="app-content">
         <Grid fullWidth className="dashboard-grid">
           <Column sm={4} md={8} lg={16}>
-            <div className="dashboard-heading">
-              <div>
-                <Tag type="gray" size="sm">
-                  {sourceConfig?.season ?? "Summer 2026"}
-                </Tag>
-                <h1>Internship dashboard</h1>
-                <p>{sourceConfig?.displayName ?? "SimplifyJobs internship postings"}</p>
-              </div>
-            </div>
-          </Column>
-
-          <Column sm={4} md={8} lg={16}>
             <div className="app-tabs">
-              <Tabs>
-                <TabList aria-label="Dashboard sections" size="sm">
-                  <Tab>Postings</Tab>
-                  <Tab>Applications</Tab>
-                </TabList>
+              <Tabs
+                selectedIndex={selectedTabIndex}
+                onChange={({ selectedIndex }) => {
+                  setSelectedTabIndex(selectedIndex);
+                  if (selectedIndex === 2) {
+                    setHasOpenedStats(true);
+                  }
+                }}
+              >
+                <div className="page-header-box">
+                  <div className="page-header-breadcrumb-row">
+                    <Breadcrumb noTrailingSlash size="sm">
+                      <BreadcrumbItem href="/">Homepage</BreadcrumbItem>
+                      <BreadcrumbItem isCurrentPage>{pageHeader.title}</BreadcrumbItem>
+                    </Breadcrumb>
+                    <Tag type="gray" size="sm">
+                      {sourceConfig?.season ?? "Summer 2026"}
+                    </Tag>
+                  </div>
+
+                  <div className="page-header-content">
+                    <div>
+                      <h1>{pageHeader.title}</h1>
+                      <p>{pageHeader.subtitle}</p>
+                    </div>
+                    <div className="page-header-metric" aria-label={`${pageHeader.metricLabel}: ${pageHeader.metricValue}`}>
+                      <span>{pageHeader.metricLabel}</span>
+                      <strong>{pageHeader.metricValue}</strong>
+                    </div>
+                  </div>
+
+                  <div className="page-header-tabs">
+                    <TabList aria-label="Dashboard sections" size="sm">
+                      <Tab>Postings</Tab>
+                      <Tab>Applications</Tab>
+                      <Tab>Stats</Tab>
+                    </TabList>
+                  </div>
+                </div>
+
                 <TabPanels>
                   <TabPanel className="app-tab-panel">
-                    <Grid fullWidth className="dashboard-grid dashboard-grid--tab">
-                    <Column sm={4} md={8} lg={4}>
-                      <Tile className="filters-tile">
-                        <h2>Filters</h2>
-                        <div className="filters-stack">
-                          <TextInput
-                            id="posting-search"
-                            labelText="Search"
-                            placeholder="Company, role, category"
-                            size="sm"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                          />
-                          <TextInput
-                            id="posting-location"
-                            labelText="Location"
-                            placeholder="Remote, NYC, CA"
-                            size="sm"
-                            value={location}
-                            onChange={(event) => setLocation(event.target.value)}
-                          />
-                          <MultiSelect
-                            id="posting-category"
-                            titleText="Category"
-                            label="All categories"
-                            items={categories}
-                            itemToString={(item) => item}
-                            selectedItems={categoryFilters}
-                            selectionFeedback="fixed"
-                            size="sm"
-                            onChange={({ selectedItems }) => setCategoryFilters(selectedItems ?? [])}
-                          />
-                          <MultiSelect
-                            id="posting-tags"
-                            titleText="Tags"
-                            label="All tags"
-                            items={postingTagFilters}
-                            itemToString={(item) => item.label}
-                            selectedItems={tagFilters}
-                            selectionFeedback="fixed"
-                            size="sm"
-                            onChange={({ selectedItems }) => setTagFilters(selectedItems ?? [])}
-                          />
-                          <MultiSelect
-                            id="posting-sponsorship"
-                            titleText="Sponsorship"
-                            label="All sponsorship"
-                            items={sponsorshipFilters}
-                            itemToString={(item) => item.label}
-                            selectedItems={sponsorship}
-                            selectionFeedback="fixed"
-                            size="sm"
-                            onChange={({ selectedItems }) => setSponsorship(selectedItems ?? [])}
-                          />
-                          <MultiSelect
-                            id="posting-citizenship"
-                            titleText="Citizenship"
-                            label="All citizenship"
-                            items={citizenshipFilters}
-                            itemToString={(item) => item.label}
-                            selectedItems={citizenship}
-                            selectionFeedback="fixed"
-                            size="sm"
-                            onChange={({ selectedItems }) => setCitizenship(selectedItems ?? [])}
-                          />
-                        </div>
-                      </Tile>
-                    </Column>
-
-                    <Column sm={4} md={8} lg={8}>
-                      <Tile className="feed-shell">
-                        <div className="section-header">
-                          <div>
-                            <h2>Latest postings</h2>
-                            <p>
-                              {visiblePostings.length} of {postings.length} postings shown
-                            </p>
-                          </div>
-                          {sourceConfig ? <Tag type="gray">{sourceConfig.season}</Tag> : null}
-                        </div>
-
-                        {isLoading ? <Loading description="Loading dashboard" withOverlay={false} /> : null}
-
-                        <div className="posting-list" aria-label="Internship postings">
-                          {visiblePostings.map((posting) => (
-                            <PostingCard
-                              key={posting.id}
-                              isSelected={posting.id === selectedPostingId}
-                              posting={posting}
-                              onFollow={handleFollow}
-                              onSelect={handleSelectPosting}
-                              onTrack={handleTrack}
+                    <Grid fullWidth className="dashboard-grid dashboard-grid--tab dashboard-grid--postings">
+                      <Column sm={4} md={8} lg={4} className="posting-side-column">
+                        <Tile className="filters-tile">
+                          <h2>Filters</h2>
+                          <div className="filters-stack">
+                            <TextInput
+                              id="posting-search"
+                              labelText="Search"
+                              placeholder="Company, role, category"
+                              size="sm"
+                              value={search}
+                              onChange={(event) => setSearch(event.target.value)}
                             />
-                          ))}
-
-                          {!isLoading && visiblePostings.length === 0 ? (
-                            <div className="posting-empty">
-                              <p>No postings match the current filters.</p>
-                              <span>Adjust filters.</span>
-                            </div>
-                          ) : null}
-                        </div>
-                      </Tile>
-                    </Column>
-
-                    <Column sm={4} md={8} lg={4}>
-                      <div className="sidebar-stack">
-                        {error ? (
-                          <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton />
-                        ) : null}
-                        {notice ? (
-                          <InlineNotification
-                            kind="success"
-                            lowContrast
-                            title="Updated"
-                            subtitle={notice}
-                            onCloseButtonClick={() => setNotice(null)}
-                          />
-                        ) : null}
-
-                        <VisualizationPanel posting={selectedPosting} themeMode={themeMode} />
-
-                        <Tile className="stats-tile">
-                          <h2>Stats</h2>
-                          <div className="stats-grid">
-                            {statItems.map((item) => (
-                              <div className="stat-item" key={item.label}>
-                                <strong>{item.value}</strong>
-                                <span>{item.label}</span>
-                              </div>
-                            ))}
+                            <TextInput
+                              id="posting-location"
+                              labelText="Location"
+                              placeholder="Remote, NYC, CA"
+                              size="sm"
+                              value={location}
+                              onChange={(event) => setLocation(event.target.value)}
+                            />
+                            <MultiSelect
+                              id="posting-category"
+                              titleText="Category"
+                              label="All categories"
+                              items={categories}
+                              itemToString={(item) => item}
+                              selectedItems={categoryFilters}
+                              selectionFeedback="fixed"
+                              size="sm"
+                              onChange={({ selectedItems }) => setCategoryFilters(selectedItems ?? [])}
+                            />
+                            <MultiSelect
+                              id="posting-tags"
+                              titleText="Tags"
+                              label="All tags"
+                              items={postingTagFilters}
+                              itemToString={(item) => item.label}
+                              selectedItems={tagFilters}
+                              selectionFeedback="fixed"
+                              size="sm"
+                              onChange={({ selectedItems }) => setTagFilters(selectedItems ?? [])}
+                            />
+                            <MultiSelect
+                              id="posting-sponsorship"
+                              titleText="Sponsorship"
+                              label="Any sponsorship status"
+                              items={sponsorshipFilters}
+                              itemToString={(item) => item.label}
+                              selectedItems={sponsorship}
+                              selectionFeedback="fixed"
+                              size="sm"
+                              onChange={({ selectedItems }) => setSponsorship(selectedItems ?? [])}
+                            />
+                            <MultiSelect
+                              id="posting-citizenship"
+                              titleText="Citizenship"
+                              label="Any citizenship status"
+                              items={citizenshipFilters}
+                              itemToString={(item) => item.label}
+                              selectedItems={citizenship}
+                              selectionFeedback="fixed"
+                              size="sm"
+                              onChange={({ selectedItems }) => setCitizenship(selectedItems ?? [])}
+                            />
                           </div>
                         </Tile>
-                      </div>
-                    </Column>
+                      </Column>
+
+                      <Column sm={4} md={8} lg={8} className="posting-feed-column">
+                        <Tile className="feed-shell feed-shell--scroll">
+                          <div className="section-header">
+                            <div>
+                              <h2>Latest postings</h2>
+                              <p>
+                                {visiblePostings.length} of {postings.length} postings shown
+                              </p>
+                            </div>
+                            {sourceConfig ? <Tag type="gray">{sourceConfig.season}</Tag> : null}
+                          </div>
+
+                          {isLoading ? <Loading description="Loading dashboard" withOverlay={false} /> : null}
+
+                          <div className="posting-list" aria-label="Internship postings">
+                            {visiblePostings.map((posting) => (
+                              <PostingCard
+                                key={posting.id}
+                                isSelected={posting.id === selectedPostingId}
+                                posting={posting}
+                                onFollow={handleFollow}
+                                onSelect={handleSelectPosting}
+                                onTrack={handleTrack}
+                              />
+                            ))}
+
+                            {!isLoading && visiblePostings.length === 0 ? (
+                              <div className="posting-empty">
+                                <p>No postings match the current filters.</p>
+                                <span>Adjust filters.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </Tile>
+                      </Column>
+
+                      <Column sm={4} md={8} lg={4} className="posting-side-column">
+                        <div className="sidebar-stack">
+                          {error ? (
+                            <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton />
+                          ) : null}
+                          {notice ? (
+                            <InlineNotification
+                              kind="success"
+                              lowContrast
+                              title="Updated"
+                              subtitle={notice}
+                              onCloseButtonClick={() => setNotice(null)}
+                            />
+                          ) : null}
+
+                          <VisualizationPanel posting={selectedPosting} themeMode={themeMode} />
+                        </div>
+                      </Column>
                     </Grid>
                   </TabPanel>
                   <TabPanel className="app-tab-panel">
@@ -1130,9 +1688,31 @@ function App() {
                     </div>
                     <ApplicationTrackerPanel
                       applications={applications}
-                      activityDays={activityDays}
                       isLoading={isLoading}
+                      onArchive={handleApplicationArchive}
+                      onDelete={handleApplicationDelete}
                       onStatusChange={handleApplicationStatusChange}
+                    />
+                  </TabPanel>
+                  <TabPanel className="app-tab-panel">
+                    <div className="tracker-notices">
+                      {error ? <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton /> : null}
+                      {notice ? (
+                        <InlineNotification
+                          kind="success"
+                          lowContrast
+                          title="Updated"
+                          subtitle={notice}
+                          onCloseButtonClick={() => setNotice(null)}
+                        />
+                      ) : null}
+                    </div>
+                    <StatsPanel
+                      activityDays={activityDays}
+                      applications={applications}
+                      isChartActive={hasOpenedStats || selectedTabIndex === 2}
+                      postings={postings}
+                      themeMode={themeMode}
                     />
                   </TabPanel>
                 </TabPanels>

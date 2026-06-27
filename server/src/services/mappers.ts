@@ -1,4 +1,8 @@
-import type { Application, FetchRun, FollowedCompany, JobPosting, SourceConfig } from "../generated/prisma/client.js";
+import type { Application, ApplicationEvent, FetchRun, FollowedCompany, JobPosting, SourceConfig } from "../generated/prisma/client.js";
+
+type ApplicationWithEvents = Application & {
+  events?: ApplicationEvent[];
+};
 
 export function toSourceConfigDto(source: SourceConfig) {
   return {
@@ -35,7 +39,7 @@ export function toFollowedCompanyDto(followedCompany: FollowedCompany) {
   };
 }
 
-export function toApplicationDto(application: Application) {
+export function toApplicationDto(application: ApplicationWithEvents) {
   return {
     id: application.id,
     jobPostingId: application.jobPostingId,
@@ -44,8 +48,23 @@ export function toApplicationDto(application: Application) {
     jobPostingUrl: application.jobPostingUrl,
     externalApplicationTrackingUrl: application.externalApplicationTrackingUrl,
     status: application.status,
+    archivedAt: application.archivedAt?.toISOString() ?? null,
     createdAt: application.createdAt.toISOString(),
-    updatedAt: application.updatedAt.toISOString()
+    updatedAt: application.updatedAt.toISOString(),
+    events: [...(application.events ?? [])]
+      .sort((left, right) => left.eventDate.getTime() - right.eventDate.getTime() || left.createdAt.getTime() - right.createdAt.getTime())
+      .map(toApplicationEventDto)
+  };
+}
+
+function toApplicationEventDto(event: ApplicationEvent) {
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    previousStatus: event.previousStatus,
+    newStatus: event.newStatus,
+    eventDate: event.eventDate.toISOString(),
+    createdAt: event.createdAt.toISOString()
   };
 }
 

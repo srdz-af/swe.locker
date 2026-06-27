@@ -10,6 +10,7 @@ export async function listPostings() {
   const applications = await prisma.application.findMany({
     where: {
       ownerKey: LOCAL_OWNER_KEY,
+      archivedAt: null,
       jobPostingId: {
         not: null
       }

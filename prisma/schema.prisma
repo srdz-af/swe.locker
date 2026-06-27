@@ -119,6 +119,7 @@ model Application {
   jobPostingUrl                  String?
   externalApplicationTrackingUrl String?
   status                         ApplicationStatus  @default(APPLIED)
+  archivedAt                     DateTime?
   createdAt                      DateTime           @default(now())
   updatedAt                      DateTime           @updatedAt
   events                         ApplicationEvent[]
@@ -126,6 +127,7 @@ model Application {
   @@index([ownerKey])
   @@index([jobPostingId])
   @@index([status])
+  @@index([archivedAt])
 }
 
 model ApplicationEvent {
