@@ -6,8 +6,6 @@ export type HealthResponse = {
 
 export type ApplicationStatus = "APPLIED" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
 
-export type FetchRunStatus = "RUNNING" | "SUCCESS" | "FAILURE";
-
 export type SourceConfigDto = {
   id: string;
   displayName: string;
@@ -45,17 +43,6 @@ export type JobPostingDto = {
   requiresAdvancedDegree: boolean;
 };
 
-export type FetchRunDto = {
-  id: string;
-  startedAt: string;
-  completedAt: string | null;
-  status: FetchRunStatus;
-  postingsFound: number;
-  newPostings: number;
-  updatedPostings: number;
-  errorMessage: string | null;
-};
-
 export type FollowedCompanyDto = {
   id: string;
   companyName: string;
@@ -73,18 +60,4 @@ export type ApplicationDto = {
   status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
-};
-
-export type DashboardStatsDto = {
-  totalPostings: number;
-  newPostingsToday: number;
-  followedCompanyPostings: number;
-  trackedApplications: number;
-  applicationsByStatus: Record<ApplicationStatus, number>;
-  lastFetchRun: FetchRunDto | null;
-};
-
-export type RefreshResultDto = {
-  fetchRun: FetchRunDto;
-  sourceConfig: SourceConfigDto;
 };

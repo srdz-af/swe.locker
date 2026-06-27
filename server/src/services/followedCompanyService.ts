@@ -2,19 +2,6 @@ import { LOCAL_OWNER_KEY, normalizeCompanyName } from "../domain/normalize.js";
 import { prisma } from "../db/prisma.js";
 import { toFollowedCompanyDto } from "./mappers.js";
 
-export async function listFollowedCompanies() {
-  const followedCompanies = await prisma.followedCompany.findMany({
-    where: {
-      ownerKey: LOCAL_OWNER_KEY
-    },
-    orderBy: {
-      companyName: "asc"
-    }
-  });
-
-  return followedCompanies.map(toFollowedCompanyDto);
-}
-
 export async function followCompany(companyName: string) {
   const trimmedCompanyName = companyName.trim();
   const normalizedCompanyName = normalizeCompanyName(trimmedCompanyName);

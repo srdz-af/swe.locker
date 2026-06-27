@@ -1,8 +1,5 @@
 import type { Application, FetchRun, FollowedCompany, JobPosting, SourceConfig } from "../generated/prisma/client.js";
 
-const APPLICATION_STATUSES = ["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"] as const;
-type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
-
 export function toSourceConfigDto(source: SourceConfig) {
   return {
     id: source.id,
@@ -87,10 +84,6 @@ export function toJobPostingDto(
     isFaang: posting.isFaang,
     requiresAdvancedDegree: posting.requiresAdvancedDegree
   };
-}
-
-export function emptyApplicationStatusCounts(): Record<ApplicationStatus, number> {
-  return Object.fromEntries(APPLICATION_STATUSES.map((status) => [status, 0])) as Record<ApplicationStatus, number>;
 }
 
 export function isNewSinceYesterday(firstSeenAt: Date) {

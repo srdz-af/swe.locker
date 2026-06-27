@@ -1,14 +1,12 @@
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
-import { prisma } from "../db/prisma.js";
 import { normalizeCompanyName } from "../domain/normalize.js";
 import { HttpError } from "../errors.js";
 import { createApplicationFromPosting, deleteApplication } from "../services/applicationService.js";
-import { followCompany, listFollowedCompanies, unfollowCompany } from "../services/followedCompanyService.js";
-import { toFetchRunDto, toSourceConfigDto } from "../services/mappers.js";
-import { getDashboardStats, listPostings } from "../services/postingService.js";
-import { refreshSource } from "../services/refreshService.js";
+import { followCompany, unfollowCompany } from "../services/followedCompanyService.js";
+import { toSourceConfigDto } from "../services/mappers.js";
+import { listPostings } from "../services/postingService.js";
 import { ensureSourceConfig } from "../services/sourceConfigService.js";
 
 export const apiRouter = Router();
@@ -23,55 +21,11 @@ apiRouter.get("/source-config", async (_request, response, next) => {
 
 apiRouter.get("/postings", async (request, response, next) => {
   try {
-    const query = postingsQuerySchema.parse(request.query);
-    response.json(
-      await listPostings({
-        search: query.search,
-        category: query.category,
-        location: query.location,
-        newOnly: query.newOnly,
-        followedOnly: query.followedOnly,
-        activeOnly: query.activeOnly
-      })
-    );
-  } catch (error) {
-    next(error);
-  }
-});
+    if (Object.keys(request.query).length > 0) {
+      throw new HttpError(400, "Posting filters are client-side only.");
+    }
 
-apiRouter.post("/refresh", async (_request, response, next) => {
-  try {
-    response.status(202).json(await refreshSource());
-  } catch (error) {
-    next(error);
-  }
-});
-
-apiRouter.get("/fetch-runs", async (_request, response, next) => {
-  try {
-    const fetchRuns = await prisma.fetchRun.findMany({
-      orderBy: {
-        startedAt: "desc"
-      },
-      take: 20
-    });
-    response.json(fetchRuns.map(toFetchRunDto));
-  } catch (error) {
-    next(error);
-  }
-});
-
-apiRouter.get("/dashboard-stats", async (_request, response, next) => {
-  try {
-    response.json(await getDashboardStats());
-  } catch (error) {
-    next(error);
-  }
-});
-
-apiRouter.get("/followed-companies", async (_request, response, next) => {
-  try {
-    response.json(await listFollowedCompanies());
+    response.json(await listPostings());
   } catch (error) {
     next(error);
   }
@@ -111,15 +65,6 @@ apiRouter.delete("/applications/:applicationId", async (request, response, next)
   } catch (error) {
     next(error);
   }
-});
-
-const postingsQuerySchema = z.object({
-  search: z.string().optional(),
-  category: z.string().optional(),
-  location: z.string().optional(),
-  newOnly: z.coerce.boolean().optional(),
-  followedOnly: z.coerce.boolean().optional(),
-  activeOnly: z.coerce.boolean().optional()
 });
 
 const followCompanyBodySchema = z.object({

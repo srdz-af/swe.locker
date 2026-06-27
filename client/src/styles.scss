@@ -1,17 +1,54 @@
+:root,
+:root[data-app-theme="light"],
+.app-root--light {
+  --app-background: #f4f4f4;
+  --app-surface: #ffffff;
+  --app-surface-alt: #f4f4f4;
+  --app-border: #e0e0e0;
+  --app-text: #161616;
+  --app-text-secondary: #262626;
+  --app-text-muted: #525252;
+  --app-shadow: transparent;
+}
+
+:root[data-app-theme="dark"],
+.app-root--dark {
+  --app-background: #161616;
+  --app-surface: #262626;
+  --app-surface-alt: #393939;
+  --app-border: #525252;
+  --app-text: #f4f4f4;
+  --app-text-secondary: #e0e0e0;
+  --app-text-muted: #c6c6c6;
+  --app-shadow: rgba(0, 0, 0, 0.24);
+}
+
 :root {
-  background: #f4f4f4;
-  color: #161616;
+  background: var(--app-background);
+  color: var(--app-text);
   font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
 }
 
 body {
   margin: 0;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+.app-root {
+  min-height: 100vh;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+.app-header {
+  box-shadow: 0 1px 0 var(--app-shadow);
 }
 
 .app-content {
   min-height: 100vh;
   padding-block: 3rem;
-  background: #f4f4f4;
+  background: var(--app-background);
 }
 
 .dashboard-grid {
@@ -28,17 +65,19 @@ body {
 
 .dashboard-heading h1 {
   margin: 0.75rem 0 0.5rem;
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: 1.25rem;
   font-weight: 400;
+  line-height: 1.4;
   letter-spacing: 0;
 }
 
 .dashboard-heading p,
 .section-header p,
-.source-tile p,
 .posting-empty span {
   max-width: 44rem;
-  color: #525252;
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.28572;
 }
 
 .dashboard-actions {
@@ -50,8 +89,9 @@ body {
 
 .feed-shell,
 .stats-tile,
-.source-tile {
-  background: #ffffff;
+.filters-tile {
+  background: var(--app-surface);
+  color: var(--app-text);
 }
 
 .section-header {
@@ -64,25 +104,17 @@ body {
 
 .section-header h2,
 .stats-tile h2,
-.source-tile h2 {
+.filters-tile h2 {
   margin: 0 0 0.25rem;
-  font-size: 1.25rem;
-  font-weight: 400;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.42857;
 }
 
-.filters-grid {
+.filters-stack {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(10rem, 0.8fr) minmax(12rem, 0.8fr) auto;
   gap: 1rem;
-  align-items: end;
-  margin-block-end: 1.5rem;
-}
-
-.filter-checks {
-  display: grid;
-  gap: 0.75rem;
-  min-width: 9rem;
-  padding-block-end: 0.25rem;
+  margin-block-start: 1.5rem;
 }
 
 .posting-list {
@@ -95,8 +127,8 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 1rem;
   padding: 1rem;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
 }
 
 .posting-main {
@@ -110,10 +142,22 @@ body {
   gap: 1rem;
 }
 
+.posting-company {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.posting-company .cds--btn--icon-only {
+  min-width: 2rem;
+}
+
 .posting-title-line h3 {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  line-height: 1.42857;
 }
 
 .posting-tags {
@@ -125,14 +169,16 @@ body {
 
 .posting-role {
   margin: 0.5rem 0;
-  color: #262626;
+  color: var(--app-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.42857;
 }
 
 .posting-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
-  color: #525252;
+  color: var(--app-text-muted);
   font-size: 0.875rem;
 }
 
@@ -145,12 +191,14 @@ body {
 .posting-empty {
   min-height: 10rem;
   padding: 2rem;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
 }
 
 .posting-empty p {
   margin: 0 0 0.5rem;
-  font-size: 1.25rem;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .sidebar-stack {
@@ -163,30 +211,29 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--app-border);
+  background: var(--app-border);
 }
 
 .stat-item {
   display: flex;
-  min-height: 6rem;
+  min-height: 4.5rem;
   flex-direction: column;
   justify-content: space-between;
   padding: 1rem;
-  background: #f4f4f4;
+  background: var(--app-surface-alt);
 }
 
 .stat-item strong {
-  font-size: 2rem;
+  font-size: 1.25rem;
   font-weight: 400;
+  line-height: 1.4;
 }
 
 .stat-item span {
-  color: #525252;
-}
-
-.source-tile p {
-  margin-block: 0.75rem 0;
-  overflow-wrap: anywhere;
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.28572;
 }
 
 @media (max-width: 65.98rem) {
@@ -202,7 +249,6 @@ body {
     justify-content: flex-start;
   }
 
-  .filters-grid,
   .posting-card {
     grid-template-columns: 1fr;
   }
