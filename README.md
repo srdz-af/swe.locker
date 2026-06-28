@@ -58,11 +58,12 @@ curl http://localhost:4000/api/health
 
 Copy `.env.example` to `.env` and adjust values as needed.
 
-Set `VITE_MAPBOX_ACCESS_TOKEN` to render the Carbon-themed spatial map in posting details.
-
 The source defaults point at the current SimplifyJobs Summer 2026 internships README on the `dev`
 branch. The backend refreshes the local snapshot on startup when empty and then on the configured
 interval.
+
+Posting details use a lightweight office image lookup with a search-link fallback; no image API key
+is required.
 
 ## Current Scope
 

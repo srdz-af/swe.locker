@@ -3,8 +3,10 @@ import type {
   ApplicationDto,
   ApplicationStatus,
   CreateApplicationRequest,
+  CreateManualApplicationRequest,
   FollowedCompanyDto,
   JobPostingDto,
+  OfficeImageSearchDto,
   SourceConfigDto,
   UpdateApplicationStatusRequest
 } from "../../shared/src/index";
@@ -19,6 +21,18 @@ export async function getSourceConfig() {
 
 export async function getPostings() {
   return request<JobPostingDto[]>("/postings");
+}
+
+export async function getOfficeImages(company: string, location?: string | null) {
+  const params = new URLSearchParams({
+    company
+  });
+
+  if (location) {
+    params.set("location", location);
+  }
+
+  return request<OfficeImageSearchDto>(`/office-images?${params}`);
 }
 
 export async function followCompany(companyName: string) {
@@ -47,6 +61,21 @@ export async function createApplication(jobPostingId: string, externalApplicatio
   const body: CreateApplicationRequest = {
     jobPostingId,
     externalApplicationTrackingUrl: normalizeExternalApplicationTrackingUrl(externalApplicationTrackingUrl)
+  };
+
+  return request<ApplicationDto>("/applications", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+export async function createManualApplication(input: CreateManualApplicationRequest) {
+  const body: CreateManualApplicationRequest = {
+    company: input.company.trim(),
+    role: input.role.trim(),
+    jobPostingUrl: normalizeExternalApplicationTrackingUrl(input.jobPostingUrl),
+    externalApplicationTrackingUrl: normalizeExternalApplicationTrackingUrl(input.externalApplicationTrackingUrl),
+    status: input.status
   };
 
   return request<ApplicationDto>("/applications", {

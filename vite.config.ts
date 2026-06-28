@@ -3,6 +3,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: ["pdfjs-dist"]
+  },
   server: {
     port: 5173,
     strictPort: true,

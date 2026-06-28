@@ -7,6 +7,7 @@ import { HttpError } from "../errors.js";
 import {
   archiveApplication,
   createApplicationFromPosting,
+  createManualApplication,
   deleteApplication,
   listApplicationActivity,
   listApplications,
@@ -14,6 +15,7 @@ import {
 } from "../services/applicationService.js";
 import { followCompany, unfollowCompany } from "../services/followedCompanyService.js";
 import { toSourceConfigDto } from "../services/mappers.js";
+import { searchOfficeImages } from "../services/officeImageService.js";
 import { listPostings } from "../services/postingService.js";
 import { ensureSourceConfig } from "../services/sourceConfigService.js";
 
@@ -39,6 +41,15 @@ apiRouter.get("/postings", async (request, response, next) => {
   }
 });
 
+apiRouter.get("/office-images", async (request, response, next) => {
+  try {
+    const query = officeImagesQuerySchema.parse(request.query);
+    response.json(await searchOfficeImages(query));
+  } catch (error) {
+    next(error);
+  }
+});
+
 apiRouter.post("/followed-companies", async (request, response, next) => {
   try {
     const body = followCompanyBodySchema.parse(request.body);
@@ -59,16 +70,25 @@ apiRouter.delete("/followed-companies/:normalizedCompanyName", async (request, r
 
 apiRouter.post("/applications", async (request, response, next) => {
   try {
-    const body = createApplicationBodySchema.safeParse(request.body);
-    if (!body.success) {
-      const hasExternalLinkIssue = body.error.issues.some((issue) => issue.path.includes("externalApplicationTrackingUrl"));
+    const postingBody = createApplicationFromPostingBodySchema.safeParse(request.body);
+    if (postingBody.success) {
+      response.status(201).json(await createApplicationFromPosting(postingBody.data));
+      return;
+    }
+
+    const manualBody = createManualApplicationBodySchema.safeParse(request.body);
+    if (!manualBody.success) {
+      const issues = [...postingBody.error.issues, ...manualBody.error.issues];
+      const hasUrlIssue = issues.some(
+        (issue) => issue.path.includes("externalApplicationTrackingUrl") || issue.path.includes("jobPostingUrl")
+      );
       throw new HttpError(
         400,
-        hasExternalLinkIssue ? "External tracking link must be a valid http(s) URL." : "Invalid request payload."
+        hasUrlIssue ? "Application links must be valid http(s) URLs." : "Invalid request payload."
       );
     }
 
-    response.status(201).json(await createApplicationFromPosting(body.data));
+    response.status(201).json(await createManualApplication(manualBody.data));
   } catch (error) {
     next(error);
   }
@@ -124,7 +144,12 @@ const followCompanyBodySchema = z.object({
   companyName: z.string().min(1)
 });
 
-const externalApplicationTrackingUrlSchema = z.preprocess((value) => {
+const officeImagesQuerySchema = z.object({
+  company: z.string().trim().min(1),
+  location: z.string().trim().min(1).optional()
+});
+
+const optionalHttpUrlSchema = z.preprocess((value) => {
   if (value === undefined || value === null) {
     return value;
   }
@@ -140,9 +165,17 @@ const externalApplicationTrackingUrlSchema = z.preprocess((value) => {
   }
 }, z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://")).optional().nullable());
 
-const createApplicationBodySchema = z.object({
+const createApplicationFromPostingBodySchema = z.object({
   jobPostingId: z.string().min(1),
-  externalApplicationTrackingUrl: externalApplicationTrackingUrlSchema
+  externalApplicationTrackingUrl: optionalHttpUrlSchema
+});
+
+const createManualApplicationBodySchema = z.object({
+  company: z.string().trim().min(1),
+  role: z.string().trim().min(1),
+  jobPostingUrl: optionalHttpUrlSchema,
+  externalApplicationTrackingUrl: optionalHttpUrlSchema,
+  status: z.enum(["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"]).optional()
 });
 
 const updateApplicationStatusBodySchema = z.object({

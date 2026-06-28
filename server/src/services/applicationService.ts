@@ -75,6 +75,41 @@ export async function createApplicationFromPosting(input: {
   return toApplicationDto(application);
 }
 
+export async function createManualApplication(input: {
+  company: string;
+  role: string;
+  jobPostingUrl?: string | null;
+  externalApplicationTrackingUrl?: string | null;
+  status?: string;
+}) {
+  const status = input.status ?? "APPLIED";
+  if (!isApplicationStatus(status)) {
+    throw new HttpError(400, "Invalid application status.");
+  }
+
+  const application = await prisma.application.create({
+    data: {
+      ownerKey: LOCAL_OWNER_KEY,
+      jobPostingId: null,
+      company: input.company.trim(),
+      role: input.role.trim(),
+      jobPostingUrl: input.jobPostingUrl?.trim() || null,
+      externalApplicationTrackingUrl: input.externalApplicationTrackingUrl?.trim() || null,
+      status,
+      events: {
+        create: {
+          ownerKey: LOCAL_OWNER_KEY,
+          newStatus: status,
+          eventType: "CREATED"
+        }
+      }
+    },
+    include: applicationEventsInclude
+  });
+
+  return toApplicationDto(application);
+}
+
 export async function listApplications() {
   const applications = await prisma.application.findMany({
     where: {

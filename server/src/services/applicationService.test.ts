@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../errors.js";
 import {
   archiveApplication,
+  createManualApplication,
   listApplicationActivity,
   listApplications,
   updateApplicationStatus
@@ -10,6 +11,7 @@ import {
 const prismaMock = vi.hoisted(() => ({
   $transaction: vi.fn(),
   application: {
+    create: vi.fn(),
     delete: vi.fn(),
     findFirst: vi.fn(),
     findUnique: vi.fn(),
@@ -78,6 +80,91 @@ describe("applicationService", () => {
         }
       }
     });
+  });
+
+  it("creates a manual application with a created event", async () => {
+    prismaMock.application.create.mockResolvedValue({
+      ...baseApplication,
+      id: "manual_application_1",
+      jobPostingId: null,
+      company: "Manual Co",
+      role: "Backend Intern",
+      jobPostingUrl: "https://jobs.example.com/manual",
+      externalApplicationTrackingUrl: "https://tracker.example.com/manual",
+      status: "INTERVIEW",
+      events: [
+        {
+          id: "event_1",
+          ownerKey: "local",
+          applicationId: "manual_application_1",
+          previousStatus: null,
+          newStatus: "INTERVIEW",
+          eventType: "CREATED",
+          eventDate: new Date("2026-06-03T00:00:00.000Z"),
+          createdAt: new Date("2026-06-03T00:00:00.000Z")
+        }
+      ]
+    });
+
+    await expect(
+      createManualApplication({
+        company: " Manual Co ",
+        role: " Backend Intern ",
+        jobPostingUrl: "https://jobs.example.com/manual",
+        externalApplicationTrackingUrl: "https://tracker.example.com/manual",
+        status: "INTERVIEW"
+      })
+    ).resolves.toMatchObject({
+      id: "manual_application_1",
+      jobPostingId: null,
+      company: "Manual Co",
+      role: "Backend Intern",
+      status: "INTERVIEW",
+      events: [
+        {
+          eventType: "CREATED",
+          previousStatus: null,
+          newStatus: "INTERVIEW"
+        }
+      ]
+    });
+    expect(prismaMock.application.create).toHaveBeenCalledWith({
+      data: {
+        ownerKey: "local",
+        jobPostingId: null,
+        company: "Manual Co",
+        role: "Backend Intern",
+        jobPostingUrl: "https://jobs.example.com/manual",
+        externalApplicationTrackingUrl: "https://tracker.example.com/manual",
+        status: "INTERVIEW",
+        events: {
+          create: {
+            ownerKey: "local",
+            newStatus: "INTERVIEW",
+            eventType: "CREATED"
+          }
+        }
+      },
+      include: {
+        events: {
+          orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }]
+        }
+      }
+    });
+  });
+
+  it("rejects invalid manual application statuses", async () => {
+    await expect(
+      createManualApplication({
+        company: "Manual Co",
+        role: "Backend Intern",
+        status: "GHOSTED"
+      })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Invalid application status."
+    } satisfies Partial<HttpError>);
+    expect(prismaMock.application.create).not.toHaveBeenCalled();
   });
 
   it("updates status and records an activity event", async () => {

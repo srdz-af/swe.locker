@@ -79,9 +79,33 @@ export type ApplicationActivityDayDto = {
   count: number;
 };
 
+export type OfficeImageDto = {
+  title: string;
+  imageUrl: string;
+  thumbnailUrl: string | null;
+  sourceUrl: string | null;
+  sourceName: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+export type OfficeImageSearchDto = {
+  query: string;
+  searchUrl: string;
+  images: OfficeImageDto[];
+};
+
 export type CreateApplicationRequest = {
   jobPostingId: string;
   externalApplicationTrackingUrl?: string | null;
+};
+
+export type CreateManualApplicationRequest = {
+  company: string;
+  role: string;
+  jobPostingUrl?: string | null;
+  externalApplicationTrackingUrl?: string | null;
+  status?: ApplicationStatus;
 };
 
 export type UpdateApplicationStatusRequest = {

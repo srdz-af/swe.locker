@@ -16,6 +16,7 @@ import {
   Checkbox,
   Column,
   Content,
+  FileUploaderButton,
   Grid,
   Header,
   HeaderGlobalAction,
@@ -40,18 +41,25 @@ import {
   Tile,
   Tabs
 } from "@carbon/react";
-import { Add, Launch, Moon, Star, StarFilled, Sun } from "@carbon/icons-react";
-import { AlluvialChart } from "@carbon/charts-react";
-import type { AlluvialChartOptions, ChartTabularData } from "@carbon/charts-react";
-import type { ApplicationActivityDayDto, ApplicationDto, ApplicationStatus, JobPostingDto, SourceConfigDto } from "../../shared/src/index";
+import { Add, Help, Launch, Moon, Star, StarFilled, Sun } from "@carbon/icons-react";
+import { AlluvialChart, DonutChart, LineChart, RadarChart, ScaleTypes } from "@carbon/charts-react";
+import type { AlluvialChartOptions, ChartTabularData, DonutChartOptions, LineChartOptions, RadarChartOptions } from "@carbon/charts-react";
+import type {
+  ApplicationActivityDayDto,
+  ApplicationDto,
+  ApplicationStatus,
+  JobPostingDto,
+  OfficeImageSearchDto
+} from "../../shared/src/index";
 import {
   archiveApplication,
   createApplication,
+  createManualApplication,
   deleteApplication,
   followCompany,
   getApplicationActivity,
+  getOfficeImages,
   getPostings,
-  getSourceConfig,
   listApplications,
   updateApplicationStatus,
   unfollowCompany
@@ -60,20 +68,12 @@ import "@carbon/charts-react/styles.css";
 import "./styles.scss";
 
 type ThemeMode = "light" | "dark";
-type MapboxGl = typeof import("mapbox-gl").default;
 
 const themeStorageKey = "swe.locker.theme";
+const resumeRunsStorageKey = "swe.locker.resumeRuns";
 const darkPreferenceQuery = "(prefers-color-scheme: dark)";
-const carbonMapStyles = {
-  light: "mapbox://styles/carbondesignsystem/ck7c8cfpp08h61irrudv7f1xg",
-  dark: "mapbox://styles/carbondesignsystem/ck7c89g8708gy1imlz9g5o6h9"
-};
-const mapboxAccessToken = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined)?.trim() ?? "";
-const worldMapView = {
-  center: [0, 18] as [number, number],
-  zoom: 0.7
-};
-const geocodeCache = new Map<string, Promise<[number, number] | null>>();
+const resumeAcceptedFileTypes = [".pdf", ".txt", ".md", "application/pdf", "text/plain", "text/markdown"];
+const resumeMaxFileSizeBytes = 10 * 1024 * 1024;
 const applicationStatuses: Array<{ status: ApplicationStatus; label: string }> = [
   { status: "APPLIED", label: "Applied" },
   { status: "INTERVIEW", label: "Interview" },
@@ -89,6 +89,53 @@ type PostingTagFilter = {
 };
 
 type PostingFacetFilter = PostingTagFilter;
+
+type ConfettiBurstState = {
+  id: number;
+  status: Extract<ApplicationStatus, "OFFER" | "HIRED">;
+};
+
+type ConfettiPieceStyle = CSSProperties & {
+  "--confetti-color": string;
+  "--confetti-delay": string;
+  "--confetti-rotate": string;
+  "--confetti-x": string;
+  "--confetti-y": string;
+};
+
+type ManualApplicationFormState = {
+  company: string;
+  role: string;
+  jobPostingUrl: string;
+  externalApplicationTrackingUrl: string;
+  status: ApplicationStatus;
+};
+
+type ResumeTier = "S" | "A" | "B" | "C";
+
+type ResumeGraderMetric = {
+  label: string;
+  value: number;
+};
+
+type ResumeGraderRun = {
+  id: string;
+  createdAt: string;
+  sourceName: string;
+  parsedText: string;
+  grade: number | null;
+  tier: ResumeTier | null;
+  verdict: string | null;
+  metrics: ResumeGraderMetric[];
+};
+
+const initialManualApplicationForm: ManualApplicationFormState = {
+  company: "",
+  role: "",
+  jobPostingUrl: "",
+  externalApplicationTrackingUrl: "",
+  status: "APPLIED"
+};
 
 const postingTagFilters: PostingTagFilter[] = [
   { id: "new", label: "New", matches: (posting) => posting.isNewToday },
@@ -106,10 +153,50 @@ const citizenshipFilters: PostingFacetFilter[] = [
   { id: "us-citizenship", label: "US citizenship required", matches: (posting) => posting.requiresUsCitizenship }
 ];
 
+const statsOutcomeColors = {
+  applied: "#8d8d8d",
+  interview: "#1192e8",
+  offer: "#0f62fe",
+  rejected: "#d02670"
+};
+
 const alluvialOutcomeColors = {
-  "In progress": "#0f62fe",
-  Offer: "#24a148",
-  Rejected: "#da1e28"
+  "In progress": statsOutcomeColors.applied,
+  Offer: statsOutcomeColors.offer,
+  Rejected: statsOutcomeColors.rejected
+};
+const confettiPieces: ConfettiPieceStyle[] = [
+  { "--confetti-color": "#0f62fe", "--confetti-delay": "0ms", "--confetti-rotate": "-28deg", "--confetti-x": "-44vw", "--confetti-y": "-24vh" },
+  { "--confetti-color": "#24a148", "--confetti-delay": "20ms", "--confetti-rotate": "32deg", "--confetti-x": "-35vw", "--confetti-y": "-32vh" },
+  { "--confetti-color": "#da1e28", "--confetti-delay": "40ms", "--confetti-rotate": "72deg", "--confetti-x": "-25vw", "--confetti-y": "-20vh" },
+  { "--confetti-color": "#8a3ffc", "--confetti-delay": "60ms", "--confetti-rotate": "-64deg", "--confetti-x": "-14vw", "--confetti-y": "-34vh" },
+  { "--confetti-color": "#1192e8", "--confetti-delay": "80ms", "--confetti-rotate": "48deg", "--confetti-x": "-5vw", "--confetti-y": "-22vh" },
+  { "--confetti-color": "#f1c21b", "--confetti-delay": "100ms", "--confetti-rotate": "-18deg", "--confetti-x": "6vw", "--confetti-y": "-36vh" },
+  { "--confetti-color": "#0f62fe", "--confetti-delay": "120ms", "--confetti-rotate": "82deg", "--confetti-x": "15vw", "--confetti-y": "-20vh" },
+  { "--confetti-color": "#24a148", "--confetti-delay": "140ms", "--confetti-rotate": "-52deg", "--confetti-x": "25vw", "--confetti-y": "-31vh" },
+  { "--confetti-color": "#da1e28", "--confetti-delay": "160ms", "--confetti-rotate": "24deg", "--confetti-x": "36vw", "--confetti-y": "-23vh" },
+  { "--confetti-color": "#8a3ffc", "--confetti-delay": "180ms", "--confetti-rotate": "-88deg", "--confetti-x": "44vw", "--confetti-y": "-35vh" },
+  { "--confetti-color": "#1192e8", "--confetti-delay": "60ms", "--confetti-rotate": "18deg", "--confetti-x": "-38vw", "--confetti-y": "2vh" },
+  { "--confetti-color": "#f1c21b", "--confetti-delay": "90ms", "--confetti-rotate": "-38deg", "--confetti-x": "-28vw", "--confetti-y": "8vh" },
+  { "--confetti-color": "#0f62fe", "--confetti-delay": "120ms", "--confetti-rotate": "58deg", "--confetti-x": "-16vw", "--confetti-y": "4vh" },
+  { "--confetti-color": "#24a148", "--confetti-delay": "150ms", "--confetti-rotate": "-72deg", "--confetti-x": "-4vw", "--confetti-y": "10vh" },
+  { "--confetti-color": "#da1e28", "--confetti-delay": "180ms", "--confetti-rotate": "36deg", "--confetti-x": "8vw", "--confetti-y": "5vh" },
+  { "--confetti-color": "#8a3ffc", "--confetti-delay": "210ms", "--confetti-rotate": "-24deg", "--confetti-x": "19vw", "--confetti-y": "12vh" },
+  { "--confetti-color": "#1192e8", "--confetti-delay": "240ms", "--confetti-rotate": "66deg", "--confetti-x": "31vw", "--confetti-y": "6vh" },
+  { "--confetti-color": "#f1c21b", "--confetti-delay": "270ms", "--confetti-rotate": "-46deg", "--confetti-x": "41vw", "--confetti-y": "14vh" }
+];
+const postingListDesktopQuery = "(min-width: 66rem)";
+const postingRowEstimate = 116;
+const postingRowGap = 8;
+const postingRowOverscan = 6;
+const resumeMockRunIdPrefix = "mock_resume_run_";
+const staleResumeSeedRunIds = new Set(["resume_run_1", "resume_run_2"]);
+const resumeMetricLabels = ["Structure", "Impact", "Evidence", "Specificity", "Relevance"];
+const resumeGraderRunsSeed: ResumeGraderRun[] = createMockResumeRuns(50);
+
+type PdfTextContentItem = {
+  hasEOL: boolean;
+  str: string;
 };
 
 type AlluvialLinkElement = SVGPathElement & {
@@ -118,10 +205,257 @@ type AlluvialLinkElement = SVGPathElement & {
   };
 };
 
-type GeocodeResult = {
-  center: [number, number];
-  isCompanySpecific: boolean;
-};
+function createMockResumeRuns(count: number) {
+  const latestRunTimestamp = Date.parse("2026-06-27T16:20:00.000Z");
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  return Array.from({ length: count }, (_, index): ResumeGraderRun => {
+    const createdAt = new Date(latestRunTimestamp - index * dayMs * 2 - (index % 4) * 60 * 60 * 1000).toISOString();
+    const fileVersion = count - index;
+    const fileDate = createdAt.slice(0, 10).replace(/-/g, "");
+    const progress = count <= 1 ? 1 : (count - 1 - index) / (count - 1);
+    const grade = clampResumeScore(58 + progress * 36 + Math.sin(index * 1.7) * 3 + ((index % 5) - 2));
+    const tier = getMockResumeTier(index);
+
+    return {
+      id: `${resumeMockRunIdPrefix}${String(fileVersion).padStart(2, "0")}`,
+      createdAt,
+      sourceName: `alex-rivera-resume-${fileDate}-v${String(fileVersion).padStart(2, "0")}.pdf`,
+      parsedText: `Alex Rivera
+Software Engineering Intern
+
+Mock parsed text for ${fileDate} resume revision ${fileVersion}.
+
+Experience
+- Built and iterated on full-stack TypeScript projects.
+- Improved dashboard workflows with React, Express, Prisma, and SQLite.
+- Refined resume bullets across structure, impact, evidence, specificity, and relevance.`,
+      grade,
+      tier,
+      verdict: getMockResumeVerdict(grade),
+      metrics: resumeMetricLabels.map((label, metricIndex) => ({
+        label,
+        value: clampResumeScore(grade + ((index * 5 + metricIndex * 7) % 17) - 8)
+      }))
+    };
+  });
+}
+
+function clampResumeScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getMockResumeTier(index: number): ResumeTier {
+  const signal = (index * 13) % 100;
+
+  if (signal >= 92) {
+    return "S";
+  }
+
+  if (signal >= 70) {
+    return "A";
+  }
+
+  if (signal >= 36) {
+    return "B";
+  }
+
+  return "C";
+}
+
+function getMockResumeVerdict(grade: number) {
+  if (grade >= 90) {
+    return "Strong revision with clear scope, evidence, and outcome-driven bullets.";
+  }
+
+  if (grade >= 80) {
+    return "Solid revision. A few bullets still need sharper metrics and ownership signals.";
+  }
+
+  if (grade >= 70) {
+    return "Usable revision, but impact and specificity are uneven across the resume.";
+  }
+
+  return "Early revision. Improve structure, quantify work, and remove vague responsibility bullets.";
+}
+
+function getInitialResumeRuns() {
+  if (typeof window === "undefined") {
+    return resumeGraderRunsSeed;
+  }
+
+  const storedRuns = window.localStorage.getItem(resumeRunsStorageKey);
+  if (!storedRuns) {
+    return resumeGraderRunsSeed;
+  }
+
+  try {
+    const parsedRuns = JSON.parse(storedRuns) as ResumeGraderRun[];
+    if (!Array.isArray(parsedRuns)) {
+      return resumeGraderRunsSeed;
+    }
+
+    return mergeResumeRunsWithSeed(parsedRuns.filter(isResumeGraderRun));
+  } catch {
+    return resumeGraderRunsSeed;
+  }
+}
+
+function mergeResumeRunsWithSeed(runs: ResumeGraderRun[]) {
+  const userRuns = runs.filter((run) => !isSeedResumeRun(run));
+  return [...userRuns, ...resumeGraderRunsSeed].sort(compareResumeRunsByCreatedAtDesc);
+}
+
+function isSeedResumeRun(run: ResumeGraderRun) {
+  return run.id.startsWith(resumeMockRunIdPrefix) || staleResumeSeedRunIds.has(run.id);
+}
+
+function compareResumeRunsByCreatedAtDesc(firstRun: ResumeGraderRun, secondRun: ResumeGraderRun) {
+  return getResumeRunTime(secondRun) - getResumeRunTime(firstRun);
+}
+
+function compareResumeRunsByCreatedAtAsc(firstRun: ResumeGraderRun, secondRun: ResumeGraderRun) {
+  return getResumeRunTime(firstRun) - getResumeRunTime(secondRun);
+}
+
+function getResumeRunTime(run: ResumeGraderRun) {
+  const time = Date.parse(run.createdAt);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function getResumeRunIdFromChartTarget(target: EventTarget | null, container: HTMLElement) {
+  let element = target instanceof Element ? target : null;
+
+  while (element && element !== container) {
+    const runId = getResumeRunIdFromChartDatum((element as Element & { __data__?: unknown }).__data__);
+    if (runId) {
+      return runId;
+    }
+
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
+function getResumeRunIdFromChartDatum(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const datum = value as { runId?: unknown; datum?: unknown; data?: unknown };
+  if (typeof datum.runId === "string") {
+    return datum.runId;
+  }
+
+  return getResumeRunIdFromChartDatum(datum.datum) ?? getResumeRunIdFromChartDatum(datum.data);
+}
+
+function isResumeGraderRun(value: unknown): value is ResumeGraderRun {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as ResumeGraderRun;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.createdAt === "string" &&
+    typeof candidate.sourceName === "string" &&
+    typeof candidate.parsedText === "string" &&
+    Array.isArray(candidate.metrics)
+  );
+}
+
+async function extractResumeText(file: File) {
+  if (file.size > resumeMaxFileSizeBytes) {
+    throw new Error("Upload a resume smaller than 10 MB.");
+  }
+
+  const fileName = file.name.toLowerCase();
+
+  if (file.type === "application/pdf" || fileName.endsWith(".pdf")) {
+    return extractPdfResumeText(file);
+  }
+
+  if (
+    file.type.startsWith("text/") ||
+    fileName.endsWith(".txt") ||
+    fileName.endsWith(".md") ||
+    fileName.endsWith(".markdown")
+  ) {
+    return normalizeExtractedResumeText(await file.text());
+  }
+
+  throw new Error("Upload a PDF, TXT, or Markdown resume.");
+}
+
+async function extractPdfResumeText(file: File) {
+  const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+
+  const documentTask = pdfjs.getDocument({
+    data: new Uint8Array(await file.arrayBuffer())
+  });
+  const document = await documentTask.promise;
+  const pageTexts: string[] = [];
+
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item) => {
+          if (!isPdfTextContentItem(item)) {
+            return "";
+          }
+
+          return item.hasEOL ? `${item.str}\n` : `${item.str} `;
+        })
+        .join("");
+
+      pageTexts.push(pageText);
+    }
+  } finally {
+    await document.cleanup();
+    await documentTask.destroy();
+  }
+
+  return normalizeExtractedResumeText(pageTexts.join("\n\n"));
+}
+
+function isPdfTextContentItem(value: unknown): value is PdfTextContentItem {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "str" in value &&
+      typeof value.str === "string" &&
+      "hasEOL" in value &&
+      typeof value.hasEOL === "boolean"
+  );
+}
+
+function normalizeExtractedResumeText(text: string) {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function createExtractedResumeRun(file: File, parsedText: string): ResumeGraderRun {
+  return {
+    id: `resume_run_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    sourceName: file.name,
+    parsedText,
+    grade: null,
+    tier: null,
+    verdict: "Raw text extracted. Grading is not implemented yet.",
+    metrics: []
+  };
+}
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") {
@@ -139,10 +473,6 @@ function getInitialTheme(): ThemeMode {
 
 function normalizeFilterText(value: string) {
   return value.trim().toLowerCase();
-}
-
-function compactSearchText(value: string | undefined) {
-  return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function matchesPostingFilters(
@@ -226,6 +556,8 @@ const PostingCard = memo(function PostingCard({ isSelected, posting, onFollow, o
               size="sm"
               renderIcon={posting.isFollowed ? StarFilled : Star}
               iconDescription={posting.isFollowed ? `Unfollow ${posting.company}` : `Follow ${posting.company}`}
+              tooltipAlignment="center"
+              tooltipPosition="right"
               onClick={(event) => {
                 event.stopPropagation();
                 void onFollow(posting);
@@ -278,20 +610,166 @@ const PostingCard = memo(function PostingCard({ isSelected, posting, onFollow, o
   );
 });
 
+function VirtualizedPostingList({
+  isLoading,
+  onFollow,
+  onSelect,
+  onTrack,
+  postings,
+  selectedPostingId
+}: {
+  isLoading: boolean;
+  onFollow: (posting: JobPostingDto) => Promise<void>;
+  onSelect: (posting: JobPostingDto) => void;
+  onTrack: (posting: JobPostingDto) => Promise<void>;
+  postings: JobPostingDto[];
+  selectedPostingId: string | null;
+}) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const measuredRowsRef = useRef(new Map<string, number>());
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [measuredVersion, setMeasuredVersion] = useState(0);
+  const [shouldVirtualize, setShouldVirtualize] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia(postingListDesktopQuery).matches
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(postingListDesktopQuery);
+    const updateVirtualizationMode = () => setShouldVirtualize(mediaQuery.matches);
+
+    updateVirtualizationMode();
+    mediaQuery.addEventListener("change", updateVirtualizationMode);
+
+    return () => mediaQuery.removeEventListener("change", updateVirtualizationMode);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldVirtualize || !listRef.current) {
+      return undefined;
+    }
+
+    const element = listRef.current;
+    const resizeObserver = new ResizeObserver(() => {
+      setViewportHeight(element.clientHeight);
+      setScrollTop(element.scrollTop);
+    });
+    resizeObserver.observe(element);
+    setViewportHeight(element.clientHeight);
+    setScrollTop(element.scrollTop);
+
+    return () => resizeObserver.disconnect();
+  }, [shouldVirtualize]);
+
+  const measuredRows = measuredVersion ? measuredRowsRef.current : measuredRowsRef.current;
+  const virtualRows = useMemo(() => {
+    if (!shouldVirtualize) {
+      return {
+        rows: postings.map((posting, index) => ({
+          index,
+          posting,
+          start: 0
+        })),
+        totalSize: 0
+      };
+    }
+
+    const visibleStart = Math.max(0, scrollTop - postingRowEstimate * postingRowOverscan);
+    const visibleEnd = scrollTop + Math.max(viewportHeight, postingRowEstimate * 4) + postingRowEstimate * postingRowOverscan;
+    const rows: Array<{ index: number; posting: JobPostingDto; start: number }> = [];
+    let offset = 0;
+
+    for (const [index, posting] of postings.entries()) {
+      const measuredHeight = measuredRows.get(posting.id);
+      const rowSize = (measuredHeight ?? postingRowEstimate) + postingRowGap;
+      const rowEnd = offset + rowSize;
+
+      if (rowEnd >= visibleStart && offset <= visibleEnd) {
+        rows.push({
+          index,
+          posting,
+          start: offset
+        });
+      }
+
+      offset = rowEnd;
+    }
+
+    return {
+      rows,
+      totalSize: Math.max(0, offset - postingRowGap)
+    };
+  }, [measuredRows, postings, scrollTop, shouldVirtualize, viewportHeight]);
+
+  const setMeasuredRow = useCallback((postingId: string, element: HTMLDivElement | null) => {
+    if (!element) {
+      return;
+    }
+
+    const measuredHeight = Math.ceil(element.getBoundingClientRect().height);
+    if (measuredHeight <= 0 || measuredRowsRef.current.get(postingId) === measuredHeight) {
+      return;
+    }
+
+    measuredRowsRef.current.set(postingId, measuredHeight);
+    setMeasuredVersion((currentVersion) => currentVersion + 1);
+  }, []);
+
+  return (
+    <div
+      className={`posting-list${shouldVirtualize ? " posting-list--virtualized" : ""}`}
+      aria-label="Internship postings"
+      ref={listRef}
+      onScroll={shouldVirtualize ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
+    >
+      {!isLoading && postings.length === 0 ? (
+        <div className="posting-empty">
+          <p>No postings match the current filters.</p>
+          <span>Adjust filters.</span>
+        </div>
+      ) : null}
+
+      {shouldVirtualize ? (
+        <div className="posting-list__space" style={{ blockSize: `${virtualRows.totalSize}px` }}>
+          {virtualRows.rows.map(({ posting, start }) => (
+            <div
+              className="posting-list__row"
+              key={posting.id}
+              ref={(element) => setMeasuredRow(posting.id, element)}
+              style={{ transform: `translateY(${start}px)` }}
+            >
+              <PostingCard
+                isSelected={posting.id === selectedPostingId}
+                posting={posting}
+                onFollow={onFollow}
+                onSelect={onSelect}
+                onTrack={onTrack}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        postings.map((posting) => (
+          <PostingCard
+            key={posting.id}
+            isSelected={posting.id === selectedPostingId}
+            posting={posting}
+            onFollow={onFollow}
+            onSelect={onSelect}
+            onTrack={onTrack}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
 function isRemoteLocation(location: string) {
   return /\b(remote|virtual|anywhere|worldwide)\b/i.test(location);
 }
 
-function getConcreteMapLocation(posting: JobPostingDto) {
+function getOfficeImageLocation(posting: JobPostingDto) {
   return posting.locations.find((location) => !isRemoteLocation(location));
-}
-
-function getMapGeocodeQueries(posting: JobPostingDto, location: string) {
-  const company = compactSearchText(posting.company);
-  const place = compactSearchText(location);
-  const queries = company ? [`${company}, ${place}`, place] : [place];
-
-  return Array.from(new Set(queries.filter(Boolean)));
 }
 
 function formatDate(value: string) {
@@ -304,6 +782,10 @@ function formatDate(value: string) {
 
 function getApplicationStatusLabel(status: ApplicationStatus) {
   return applicationStatuses.find((option) => option.status === status)?.label ?? status;
+}
+
+function shouldShowStatusConfetti(status: ApplicationStatus): status is ConfettiBurstState["status"] {
+  return status === "OFFER" || status === "HIRED";
 }
 
 function getApplicationStatusCounts(applications: ApplicationDto[]) {
@@ -416,11 +898,11 @@ function formatApplicationTooltipValue(value: unknown) {
 
 function getApplicationReviewStage(application: ApplicationDto) {
   if (application.status === "APPLIED") {
-    return "CV pending";
+    return "Resume pending";
   }
 
   if (application.status === "REJECTED") {
-    return hasReachedInterview(application) ? "Interview" : "CV rejected";
+    return hasReachedInterview(application) ? "Interview" : "Resume rejected";
   }
 
   return "Interview";
@@ -483,210 +965,85 @@ function applyAlluvialOutcomeColors(container: HTMLElement) {
   }
 }
 
-async function geocodeQuery(query: string, signal: AbortSignal) {
-  const cacheKey = normalizeFilterText(query);
-  const cachedLocation = geocodeCache.get(cacheKey);
-  if (cachedLocation) {
-    return cachedLocation;
-  }
-
-  const params = new URLSearchParams({
-    access_token: mapboxAccessToken,
-    limit: "1"
-  });
-  const request = fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?${params}`, {
-    signal
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        return null;
-      }
-
-      const payload = (await response.json()) as {
-        features?: Array<{
-          center?: [number, number];
-        }>;
-      };
-
-      return payload.features?.[0]?.center ?? null;
-    })
-    .catch((error: unknown) => {
-      geocodeCache.delete(cacheKey);
-      throw error;
-    });
-
-  geocodeCache.set(cacheKey, request);
-  return request;
-}
-
-async function geocodePostingLocation(posting: JobPostingDto, location: string, signal: AbortSignal): Promise<GeocodeResult | null> {
-  const queries = getMapGeocodeQueries(posting, location);
-
-  for (const [queryIndex, query] of queries.entries()) {
-    const center = await geocodeQuery(query, signal);
-    if (center) {
-      return {
-        center,
-        isCompanySpecific: queryIndex === 0 && queries.length > 1
-      };
-    }
-  }
-
-  return null;
-}
-
-const CarbonSpatialMap = memo(function CarbonSpatialMap({
-  location,
-  posting,
-  themeMode
-}: {
-  location: string | undefined;
-  posting: JobPostingDto;
-  themeMode: ThemeMode;
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<import("mapbox-gl").Map | null>(null);
-  const markerRef = useRef<import("mapbox-gl").Marker | null>(null);
-  const mapboxRef = useRef<MapboxGl | null>(null);
-  const [mapMessage, setMapMessage] = useState<string | null>(mapboxAccessToken ? "Loading map" : "Mapbox token required");
-  const [mapReadyVersion, setMapReadyVersion] = useState(0);
+const OfficeImagePanel = memo(function OfficeImagePanel({ company, location }: { company: string; location?: string }) {
+  const [imageSearch, setImageSearch] = useState<OfficeImageSearchDto | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
 
   useEffect(() => {
-    if (!containerRef.current || !mapboxAccessToken || mapRef.current) {
-      return;
-    }
-
-    let isMounted = true;
-
-    async function initializeMap() {
-      const [{ default: mapboxgl }] = await Promise.all([import("mapbox-gl"), import("mapbox-gl/dist/mapbox-gl.css")]);
-
-      if (!isMounted || !containerRef.current) {
-        return;
-      }
-
-      mapboxRef.current = mapboxgl;
-      mapboxgl.accessToken = mapboxAccessToken;
-      const map = new mapboxgl.Map({
-        attributionControl: false,
-        center: worldMapView.center,
-        container: containerRef.current,
-        cooperativeGestures: true,
-        logoPosition: "bottom-right",
-        style: carbonMapStyles[themeMode],
-        zoom: worldMapView.zoom
-      });
-      mapRef.current = map;
-      map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-left");
-      map.once("load", () => {
-        if (!isMounted) {
-          return;
-        }
-
-        setMapReadyVersion((currentVersion) => currentVersion + 1);
-        setMapMessage(null);
-      });
-    }
-
-    void initializeMap().catch((error: unknown) => {
-      if (isMounted) {
-        setMapMessage(error instanceof Error ? error.message : "Map unavailable.");
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      markerRef.current?.remove();
-      mapRef.current?.remove();
-      markerRef.current = null;
-      mapRef.current = null;
-      mapboxRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) {
-      return;
-    }
-
-    map.setStyle(carbonMapStyles[themeMode]);
-  }, [themeMode]);
-
-  useEffect(() => {
-    if (!mapboxAccessToken || mapReadyVersion === 0) {
-      return;
-    }
-
     const abortController = new AbortController();
 
-    async function updateMapView() {
-      const map = mapRef.current;
-      if (!map) {
-        return;
-      }
+    setImageSearch(null);
+    setImageError(null);
+    setIsImageLoading(true);
 
-      if (!location) {
-        markerRef.current?.remove();
-        markerRef.current = null;
-        map.flyTo({ center: worldMapView.center, zoom: worldMapView.zoom });
-        setMapMessage(null);
-        return;
-      }
-
-      setMapMessage("Finding location");
-      const resolvedLocation = await geocodePostingLocation(posting, location, abortController.signal);
-
-      if (abortController.signal.aborted) {
-        return;
-      }
-
-      if (!resolvedLocation) {
-        markerRef.current?.remove();
-        markerRef.current = null;
-        map.flyTo({ center: worldMapView.center, zoom: worldMapView.zoom });
-        setMapMessage("Location not found. Showing world view.");
-        return;
-      }
-
-      if (!mapboxRef.current) {
-        return;
-      }
-
-      markerRef.current?.remove();
-      markerRef.current = new mapboxRef.current.Marker({ color: "#0f62fe" }).setLngLat(resolvedLocation.center).addTo(map);
-      map.flyTo({ center: resolvedLocation.center, zoom: resolvedLocation.isCompanySpecific ? 12 : 9 });
-      setMapMessage(null);
-    }
-
-    void updateMapView().catch((error: unknown) => {
-      if (!abortController.signal.aborted) {
-        setMapMessage(error instanceof Error ? error.message : "Map unavailable.");
-      }
-    });
+    void getOfficeImages(company, location)
+      .then((result) => {
+        if (!abortController.signal.aborted) {
+          setImageSearch(result);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!abortController.signal.aborted) {
+          setImageError(error instanceof Error ? error.message : "Office image unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setIsImageLoading(false);
+        }
+      });
 
     return () => {
       abortController.abort();
     };
-  }, [location, mapReadyVersion, posting.company, posting.id]);
+  }, [company, location]);
 
-  if (!mapboxAccessToken) {
-    return (
-      <div className="map-frame map-frame--empty">
-        <span>Set VITE_MAPBOX_ACCESS_TOKEN to render Carbon Mapbox themes.</span>
-      </div>
-    );
-  }
+  const officeImage = imageSearch?.images[0] ?? null;
+  const imageSource = officeImage?.thumbnailUrl ?? officeImage?.imageUrl ?? null;
+  const searchUrl = imageSearch?.searchUrl ?? getOfficeImageSearchUrl(company, location);
 
   return (
-    <div className="map-frame">
-      <div className="carbon-map" ref={containerRef} aria-label={`${posting.company} spatial map`} />
-      {mapMessage ? <div className="map-message">{mapMessage}</div> : null}
+    <div className="office-image-panel">
+      <div className="office-image-frame">
+        {imageSource ? (
+          <img src={imageSource} alt={officeImage?.title ?? `${company} office`} loading="lazy" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="office-image-placeholder">
+            {isImageLoading ? (
+              <Loading small withOverlay={false} description="Searching office images" />
+            ) : (
+              <span>{imageError ?? "No office image found"}</span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="office-image-actions">
+        <span>{imageSearch?.query ?? [company, "offices", location].filter(Boolean).join(" ")}</span>
+        <div>
+          {officeImage?.sourceUrl ? (
+            <Button kind="ghost" size="sm" renderIcon={Launch} href={officeImage.sourceUrl} target="_blank">
+              Source
+            </Button>
+          ) : null}
+          <Button kind="ghost" size="sm" renderIcon={Launch} href={searchUrl} target="_blank">
+            Images
+          </Button>
+        </div>
+      </div>
     </div>
   );
 });
 
-const VisualizationPanel = memo(function VisualizationPanel({ posting, themeMode }: { posting: JobPostingDto | null; themeMode: ThemeMode }) {
+function getOfficeImageSearchUrl(company: string, location?: string) {
+  const searchUrl = new URL("https://duckduckgo.com/");
+  searchUrl.searchParams.set("q", [company, "offices", location].filter(Boolean).join(" "));
+  searchUrl.searchParams.set("iax", "images");
+  searchUrl.searchParams.set("ia", "images");
+  return searchUrl.toString();
+}
+
+const VisualizationPanel = memo(function VisualizationPanel({ posting }: { posting: JobPostingDto | null }) {
   if (!posting) {
     return (
       <Tile className="visualization-tile">
@@ -699,7 +1056,7 @@ const VisualizationPanel = memo(function VisualizationPanel({ posting, themeMode
     );
   }
 
-  const concreteLocation = getConcreteMapLocation(posting);
+  const officeImageLocation = getOfficeImageLocation(posting);
   const detailRows = [
     { label: "Category", value: posting.category },
     { label: "Season", value: posting.season },
@@ -727,7 +1084,7 @@ const VisualizationPanel = memo(function VisualizationPanel({ posting, themeMode
         </div>
       </div>
 
-      <CarbonSpatialMap location={concreteLocation} posting={posting} themeMode={themeMode} />
+      <OfficeImagePanel company={posting.company} location={officeImageLocation} />
 
       <div className="posting-detail-card">
         <div className="posting-detail-card__header">
@@ -1014,19 +1371,81 @@ const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapT
   );
 });
 
-const StatsOverviewTile = memo(function StatsOverviewTile({ applications, postings }: { applications: ApplicationDto[]; postings: JobPostingDto[] }) {
+const StatsOverviewTile = memo(function StatsOverviewTile({
+  applications,
+  postings,
+  themeMode
+}: {
+  applications: ApplicationDto[];
+  postings: JobPostingDto[];
+  themeMode: ThemeMode;
+}) {
   const applicationCountsByStatus = useMemo(() => getApplicationStatusCounts(applications), [applications]);
-  const stats = useMemo(
+  const postingStats = useMemo(
     () => [
       { label: "Total postings", value: postings.length },
-      { label: "New today", value: postings.filter((posting) => posting.isNewToday).length },
-      { label: "Applied", value: applicationCountsByStatus.get("APPLIED") ?? 0 },
-      { label: "Interview", value: applicationCountsByStatus.get("INTERVIEW") ?? 0 },
-      { label: "Offer", value: applicationCountsByStatus.get("OFFER") ?? 0 },
-      { label: "Hired", value: applicationCountsByStatus.get("HIRED") ?? 0 },
-      { label: "Rejected", value: applicationCountsByStatus.get("REJECTED") ?? 0 }
+      { label: "New today", value: postings.filter((posting) => posting.isNewToday).length }
     ],
-    [applicationCountsByStatus, postings]
+    [postings]
+  );
+  const applicationOutcomeData = useMemo<ChartTabularData>(
+    () =>
+      applicationStatuses
+        .map((option) => ({
+          group: option.label,
+          value: applicationCountsByStatus.get(option.status) ?? 0
+        }))
+        .filter((item) => item.value > 0),
+    [applicationCountsByStatus]
+  );
+  const applicationOutcomeOptions = useMemo<DonutChartOptions>(
+    () => ({
+      accessibility: {
+        svgAriaLabel: "Application outcomes by status"
+      },
+      color: {
+        scale: {
+          Applied: statsOutcomeColors.applied,
+          Interview: statsOutcomeColors.interview,
+          Offer: statsOutcomeColors.offer,
+          Hired: statsOutcomeColors.offer,
+          Rejected: statsOutcomeColors.rejected
+        }
+      },
+      data: {
+        groupMapsTo: "group"
+      },
+      donut: {
+        alignment: "center",
+        center: {
+          label: "Tracked",
+          number: applications.length,
+          numberFontSize: () => "1.5rem",
+          titleFontSize: () => "0.75rem"
+        }
+      },
+      height: "100%",
+      legend: {
+        alignment: "center",
+        enabled: true,
+        position: "bottom"
+      },
+      pie: {
+        alignment: "center",
+        labels: {
+          enabled: false
+        },
+        valueMapsTo: "value"
+      },
+      theme: themeMode === "dark" ? "g100" : "white",
+      toolbar: {
+        enabled: false
+      },
+      tooltip: {
+        valueFormatter: (value) => formatApplicationTooltipValue(value)
+      }
+    }),
+    [applications.length, themeMode]
   );
 
   return (
@@ -1037,13 +1456,26 @@ const StatsOverviewTile = memo(function StatsOverviewTile({ applications, postin
           <p>Posting volume and active application outcomes</p>
         </div>
       </div>
-      <div className="stats-strip" aria-label="Application and posting stats">
-        {stats.map((stat) => (
-          <div className="stats-strip__item" key={stat.label}>
-            <span>{stat.label}</span>
-            <strong>{stat.value}</strong>
-          </div>
-        ))}
+      <div className="stats-overview-grid">
+        <div className="stats-strip stats-strip--postings" aria-label="Posting stats">
+          {postingStats.map((stat) => (
+            <div className="stats-strip__item" key={stat.label}>
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="application-outcome-chart" aria-label="Application outcomes">
+          {applicationOutcomeData.length > 0 ? (
+            <DonutChart data={applicationOutcomeData} options={applicationOutcomeOptions} />
+          ) : (
+            <div className="posting-empty">
+              <p>No application outcomes yet.</p>
+              <span>Tracked applications will appear here.</span>
+            </div>
+          )}
+        </div>
       </div>
     </Tile>
   );
@@ -1066,9 +1498,335 @@ const StatsPanel = memo(function StatsPanel({
     <div className="stats-stack">
       <div className="stats-top-row">
         <TrackingResultsTile applications={applications} isChartActive={isChartActive} themeMode={themeMode} />
-        <StatsOverviewTile applications={applications} postings={postings} />
+        <StatsOverviewTile applications={applications} postings={postings} themeMode={themeMode} />
       </div>
       <ApplicationActivityHeatmapTile days={activityDays} />
+    </div>
+  );
+});
+
+const ResumeGraderPanel = memo(function ResumeGraderPanel({
+  isUploadPending,
+  onUpload,
+  runs,
+  themeMode,
+  uploadError
+}: {
+  isUploadPending: boolean;
+  onUpload: (file: File) => void;
+  runs: ResumeGraderRun[];
+  themeMode: ThemeMode;
+  uploadError: string | null;
+}) {
+  const latestRun = runs[0] ?? null;
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(() => latestRun?.id ?? null);
+  const resumeHistoryChartRef = useRef<HTMLDivElement | null>(null);
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId) ?? latestRun,
+    [latestRun, runs, selectedRunId]
+  );
+  const selectedGrade = selectedRun?.grade ?? null;
+  const selectedTier = selectedRun?.tier ?? null;
+  const hasSelectedGrade = selectedGrade !== null && selectedTier !== null;
+
+  useEffect(() => {
+    setSelectedRunId((currentRunId) => {
+      if (currentRunId && runs.some((run) => run.id === currentRunId)) {
+        return currentRunId;
+      }
+
+      return runs[0]?.id ?? null;
+    });
+  }, [runs]);
+
+  const runHistoryData = useMemo<ChartTabularData>(
+    () =>
+      [...runs].sort(compareResumeRunsByCreatedAtAsc).map((run, runIndex) => ({
+        group: "Grade",
+        run: `${runIndex + 1}. ${formatDate(run.createdAt)}`,
+        runId: run.id,
+        value: run.grade ?? 0
+      })),
+    [runs]
+  );
+  const selectedRunRadarData = useMemo<ChartTabularData>(
+    () =>
+      selectedRun?.metrics.map((metric) => ({
+        group: "Selected",
+        metric: metric.label,
+        value: metric.value
+      })) ?? [],
+    [selectedRun]
+  );
+  const radarOptions = useMemo<RadarChartOptions>(
+    () => ({
+      accessibility: {
+        svgAriaLabel: "Resume grader metric profile"
+      },
+      data: {
+        groupMapsTo: "group"
+      },
+      height: "18rem",
+      legend: {
+        enabled: false
+      },
+      radar: {
+        axes: {
+          angle: "metric",
+          value: "value"
+        },
+        maxValue: 100
+      },
+      theme: themeMode === "dark" ? "g100" : "white",
+      toolbar: {
+        enabled: false
+      }
+    }),
+    [themeMode]
+  );
+  const runHistoryOptions = useMemo<LineChartOptions>(
+    () => ({
+      accessibility: {
+        svgAriaLabel: "Resume grade history"
+      },
+      axes: {
+        bottom: {
+          mapsTo: "run",
+          scaleType: ScaleTypes.LABELS,
+          visible: false
+        },
+        left: {
+          domain: [0, 100],
+          mapsTo: "value",
+          ticks: {
+            number: 5
+          }
+        }
+      },
+      points: {
+        radius: 4
+      },
+      color: {
+        scale: {
+          Grade: "#0f62fe"
+        }
+      },
+      data: {
+        groupMapsTo: "group"
+      },
+      height: "100%",
+      legend: {
+        enabled: false
+      },
+      theme: themeMode === "dark" ? "g100" : "white",
+      toolbar: {
+        enabled: false
+      },
+      tooltip: {
+        valueFormatter: (value) => `${value}/100`
+      }
+    }),
+    [themeMode]
+  );
+
+  useEffect(() => {
+    const chartElement = resumeHistoryChartRef.current;
+    if (!chartElement) {
+      return undefined;
+    }
+
+    const runIds = new Set(runs.map((run) => run.id));
+    const handleChartClick = (event: MouseEvent) => {
+      const runId = getResumeRunIdFromChartTarget(event.target, chartElement);
+      if (runId && runIds.has(runId)) {
+        setSelectedRunId(runId);
+      }
+    };
+
+    chartElement.addEventListener("click", handleChartClick);
+
+    return () => chartElement.removeEventListener("click", handleChartClick);
+  }, [runs]);
+
+  useEffect(() => {
+    const chartElement = resumeHistoryChartRef.current;
+    if (!chartElement) {
+      return;
+    }
+
+    const chartPoints = chartElement.querySelectorAll("circle");
+    chartPoints.forEach((point) => {
+      const runId = getResumeRunIdFromChartDatum((point as SVGCircleElement & { __data__?: unknown }).__data__);
+      point.classList.toggle("resume-history-point--selected", Boolean(runId && runId === selectedRun?.id));
+    });
+  }, [runHistoryData, selectedRun?.id]);
+
+  return (
+    <div className="resume-grader-stack">
+      <div className="resume-upload-actions">
+        {isUploadPending ? <Loading description="Extracting resume text" small withOverlay={false} /> : null}
+        <FileUploaderButton
+          accept={resumeAcceptedFileTypes}
+          buttonKind="secondary"
+          disabled={isUploadPending}
+          disableLabelChanges
+          id="resume-upload"
+          labelText={isUploadPending ? "Extracting..." : "Upload resume"}
+          multiple={false}
+          name="resume-upload"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+
+            if (file) {
+              onUpload(file);
+            }
+          }}
+          size="sm"
+        />
+      </div>
+
+      {uploadError ? <InlineNotification kind="error" lowContrast title="Resume upload failed" subtitle={uploadError} hideCloseButton /> : null}
+
+      <Tile className="resume-grader-latest-tile">
+        {latestRun ? (
+          <div className="resume-grader-latest">
+            <div className="resume-grader-summary">
+              <div className="section-header">
+                <div>
+                  <h2>{selectedRun?.sourceName ?? "Resume run"}</h2>
+                </div>
+                {selectedRun ? <span className="resume-run-date">{formatDate(selectedRun.createdAt)}</span> : null}
+              </div>
+
+              <div className="resume-verdict-panel">
+                <h3>Verdict</h3>
+                <p>{selectedRun?.verdict ?? "Raw text extracted. Grading is not implemented yet."}</p>
+              </div>
+
+              <div className="resume-history-chart-panel">
+                <h3>Run history</h3>
+                {runHistoryData.length > 0 ? (
+                  <div className="resume-history-line-chart" ref={resumeHistoryChartRef}>
+                    <LineChart data={runHistoryData} options={runHistoryOptions} />
+                  </div>
+                ) : (
+                  <div className="posting-empty">
+                    <p>No resume runs yet.</p>
+                    <span>Run a resume analysis.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="resume-radar-panel">
+              {hasSelectedGrade ? (
+                <div className="resume-score-panel">
+                  <div className="resume-tier-cell" aria-label={`Tier ${selectedTier}`}>
+                    <span className="resume-score-cell-label">
+                      Rank
+                      <span
+                        className="resume-score-help"
+                        tabIndex={0}
+                        aria-label="Measures raw signal based on experience, achievements and prestige, for example worked at Google"
+                      >
+                        <Help size={14} />
+                        <span className="resume-score-tooltip" role="tooltip">
+                          Measures raw signal based on experience, achievements and prestige (e.g. worked at Google)
+                        </span>
+                      </span>
+                    </span>
+                    <strong>{selectedTier}</strong>
+                  </div>
+                  <div className="resume-grade-cell" aria-label={`Numeric grade ${selectedGrade} out of 100`}>
+                    <span className="resume-score-cell-label">
+                      Grade
+                      <span
+                        className="resume-score-help"
+                        tabIndex={0}
+                        aria-label="Measures how good the resume is built against resume best practices, for example use of STAR format"
+                      >
+                        <Help size={14} />
+                        <span className="resume-score-tooltip" role="tooltip">
+                          Measures how good the resume is built against resume best practices (e.g. use of STAR format)
+                        </span>
+                      </span>
+                    </span>
+                    <strong>{selectedGrade}</strong>
+                    <span className="resume-grade-denominator">/100</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="resume-score-placeholder">
+                  <strong>Raw text</strong>
+                  <span>Grading is not implemented yet.</span>
+                </div>
+              )}
+              {selectedRunRadarData.length > 0 ? (
+                <div className="resume-radar-chart">
+                  <RadarChart data={selectedRunRadarData} options={radarOptions} />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="posting-empty">
+            <p>No resume runs yet.</p>
+            <span>Run a resume analysis.</span>
+          </div>
+        )}
+      </Tile>
+
+      <Tile className="resume-runs-tile">
+        <div className="section-header">
+          <div>
+            <h2>Past runs</h2>
+            <p>{runs.length} resume analyses</p>
+          </div>
+        </div>
+
+        {runs.length > 0 ? (
+          <div className="resume-runs-list">
+            {runs.map((run) => (
+              <button
+                className={`resume-run-row${run.id === selectedRun?.id ? " resume-run-row--selected" : ""}`}
+                key={run.id}
+                type="button"
+                aria-pressed={run.id === selectedRun?.id}
+                onClick={() => setSelectedRunId(run.id)}
+              >
+                <div>
+                  <h3>{run.sourceName}</h3>
+                </div>
+                <span className="resume-run-row-date">{formatDate(run.createdAt)}</span>
+                <div className="resume-run-score" aria-label={`Grade ${run.grade ?? "not graded"}, tier ${run.tier ?? "not graded"}`}>
+                  <strong className="resume-run-grade">{run.grade ?? "--"}</strong>
+                  <strong className="resume-run-tier">{run.tier ?? "--"}</strong>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="posting-empty">
+            <p>No resume runs yet.</p>
+            <span>Run a resume analysis.</span>
+          </div>
+        )}
+      </Tile>
+    </div>
+  );
+});
+
+const StatusConfetti = memo(function StatusConfetti({ burst }: { burst: ConfettiBurstState | null }) {
+  if (!burst) {
+    return null;
+  }
+
+  return (
+    <div className={`confetti-burst confetti-burst--${burst.status.toLowerCase()}`} key={burst.id} aria-hidden="true">
+      {confettiPieces.map((piece, index) => (
+        <span className="confetti-piece" key={`${burst.id}-${index}`} style={piece} />
+      ))}
     </div>
   );
 });
@@ -1084,16 +1842,18 @@ function ApplicationCard({
   onDelete: (application: ApplicationDto) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
+  const applicationTitleUrl = application.externalApplicationTrackingUrl ?? application.jobPostingUrl;
+
   return (
     <article className="application-card">
       <div className="application-card__header">
         <div>
           <h3>{application.company}</h3>
           <p>
-            {application.externalApplicationTrackingUrl ? (
+            {applicationTitleUrl ? (
               <a
                 className="application-card__title-link"
-                href={application.externalApplicationTrackingUrl}
+                href={applicationTitleUrl}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -1140,12 +1900,14 @@ const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   applications = [],
   isLoading,
   onArchive,
+  onCreate,
   onDelete,
   onStatusChange
 }: {
   applications?: ApplicationDto[];
   isLoading: boolean;
   onArchive: (application: ApplicationDto) => Promise<void>;
+  onCreate: () => void;
   onDelete: (application: ApplicationDto) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
@@ -1170,6 +1932,9 @@ const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
             <h2>Application tracker</h2>
             <p>{applications.length} tracked applications</p>
           </div>
+          <Button kind="primary" renderIcon={Add} size="sm" onClick={onCreate}>
+            Add application
+          </Button>
         </div>
 
         {isLoading ? <Loading description="Loading applications" withOverlay={false} /> : null}
@@ -1210,15 +1975,17 @@ const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
 function App() {
   const didLoadInitialSnapshot = useRef(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
-  const [sourceConfig, setSourceConfig] = useState<SourceConfigDto | null>(null);
   const [postings, setPostings] = useState<JobPostingDto[]>([]);
   const [applications, setApplications] = useState<ApplicationDto[]>([]);
   const [activityDays, setActivityDays] = useState<ApplicationActivityDayDto[]>([]);
+  const [resumeRuns, setResumeRuns] = useState<ResumeGraderRun[]>(getInitialResumeRuns);
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
   const [hasOpenedStats, setHasOpenedStats] = useState(false);
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(null);
   const [pendingTrackPosting, setPendingTrackPosting] = useState<JobPostingDto | null>(null);
   const [externalTrackingUrl, setExternalTrackingUrl] = useState("");
+  const [isManualApplicationModalOpen, setIsManualApplicationModalOpen] = useState(false);
+  const [manualApplicationForm, setManualApplicationForm] = useState<ManualApplicationFormState>(initialManualApplicationForm);
   const [search, setSearch] = useState("");
   const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
   const [location, setLocation] = useState("");
@@ -1227,21 +1994,23 @@ function App() {
   const [citizenship, setCitizenship] = useState<PostingFacetFilter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isTrackModalSubmitting, setIsTrackModalSubmitting] = useState(false);
+  const [isManualApplicationSubmitting, setIsManualApplicationSubmitting] = useState(false);
+  const [isResumeUploadPending, setIsResumeUploadPending] = useState(false);
+  const [resumeUploadError, setResumeUploadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confettiBurst, setConfettiBurst] = useState<ConfettiBurstState | null>(null);
   const carbonTheme = themeMode === "dark" ? "g100" : "white";
   const deferredSearch = useDeferredValue(search);
   const deferredLocation = useDeferredValue(location);
 
   const loadDashboardSnapshot = useCallback(async () => {
     setError(null);
-    const [source, postingList, applicationList, activityList] = await Promise.all([
-      getSourceConfig(),
+    const [postingList, applicationList, activityList] = await Promise.all([
       getPostings(),
       listApplications(),
       getApplicationActivity()
     ]);
-    setSourceConfig(source);
     setPostings(postingList);
     setApplications(applicationList);
     setActivityDays(activityList);
@@ -1292,7 +2061,6 @@ function App() {
       if (selectedTabIndex === 0) {
         return {
           title: "Postings",
-          subtitle: sourceConfig?.displayName ?? "SimplifyJobs internship postings",
           metricLabel: "Shown",
           metricValue: `${visiblePostings.length}/${postings.length}`
         };
@@ -1301,20 +2069,28 @@ function App() {
       if (selectedTabIndex === 1) {
         return {
           title: "Applications",
-          subtitle: "Application tracker Kanban board",
           metricLabel: "Tracked",
           metricValue: String(applications.length)
         };
       }
 
+      if (selectedTabIndex === 2) {
+        const latestRun = resumeRuns[0] ?? null;
+
+        return {
+          title: "Resume Grader",
+          metricLabel: latestRun?.grade === null ? "Latest run" : "Numeric grade",
+          metricValue: latestRun ? (latestRun.grade === null ? "Raw text" : `${latestRun.grade}/100`) : "None"
+        };
+      }
+
       return {
         title: "Stats",
-        subtitle: "Posting and application tracker analytics",
         metricLabel: "Postings",
         metricValue: String(postings.length)
       };
     },
-    [applications.length, postings.length, selectedTabIndex, sourceConfig?.displayName, visiblePostings.length]
+    [applications.length, postings.length, resumeRuns, selectedTabIndex, visiblePostings.length]
   );
 
   useEffect(() => {
@@ -1322,6 +2098,43 @@ function App() {
     document.documentElement.style.colorScheme = themeMode;
     window.localStorage.setItem(themeStorageKey, themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(resumeRunsStorageKey, JSON.stringify(resumeRuns));
+  }, [resumeRuns]);
+
+  useEffect(() => {
+    if (!confettiBurst) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setConfettiBurst(null), 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [confettiBurst]);
+
+  const handleResumeUpload = useCallback(async (file: File) => {
+    setError(null);
+    setNotice(null);
+    setResumeUploadError(null);
+    setIsResumeUploadPending(true);
+
+    try {
+      const parsedText = await extractResumeText(file);
+
+      if (!parsedText) {
+        throw new Error("No readable text was found in that file.");
+      }
+
+      const resumeRun = createExtractedResumeRun(file, parsedText);
+      setResumeRuns((currentRuns) => [resumeRun, ...currentRuns]);
+      setNotice(`Extracted text from ${file.name}.`);
+    } catch (uploadError) {
+      setResumeUploadError(uploadError instanceof Error ? uploadError.message : "Could not extract resume text.");
+    } finally {
+      setIsResumeUploadPending(false);
+    }
+  }, []);
 
   const handleFollow = useCallback(async (posting: JobPostingDto) => {
     setError(null);
@@ -1417,6 +2230,47 @@ function App() {
       setIsTrackModalSubmitting(false);
     }
   }, [externalTrackingUrl, pendingTrackPosting, refreshApplicationActivity]);
+  const handleOpenManualApplicationModal = useCallback(() => {
+    setError(null);
+    setManualApplicationForm(initialManualApplicationForm);
+    setIsManualApplicationModalOpen(true);
+  }, []);
+  const handleCloseManualApplicationModal = useCallback(() => {
+    if (isManualApplicationSubmitting) {
+      return;
+    }
+
+    setIsManualApplicationModalOpen(false);
+    setManualApplicationForm(initialManualApplicationForm);
+  }, [isManualApplicationSubmitting]);
+  const isManualApplicationSubmitDisabled =
+    isManualApplicationSubmitting || !manualApplicationForm.company.trim() || !manualApplicationForm.role.trim();
+  const handleCreateManualApplication = useCallback(async () => {
+    if (!manualApplicationForm.company.trim() || !manualApplicationForm.role.trim()) {
+      return;
+    }
+
+    setError(null);
+    setIsManualApplicationSubmitting(true);
+    try {
+      const application = await createManualApplication({
+        company: manualApplicationForm.company,
+        role: manualApplicationForm.role,
+        jobPostingUrl: manualApplicationForm.jobPostingUrl || null,
+        externalApplicationTrackingUrl: manualApplicationForm.externalApplicationTrackingUrl || null,
+        status: manualApplicationForm.status
+      });
+      setApplications((currentApplications) => [application, ...currentApplications]);
+      setNotice(`${application.company} application added.`);
+      setIsManualApplicationModalOpen(false);
+      setManualApplicationForm(initialManualApplicationForm);
+      await refreshApplicationActivity();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create application.");
+    } finally {
+      setIsManualApplicationSubmitting(false);
+    }
+  }, [manualApplicationForm, refreshApplicationActivity]);
   const handleApplicationStatusChange = useCallback(
     async (application: ApplicationDto, status: ApplicationStatus) => {
       if (application.status === status) {
@@ -1432,6 +2286,9 @@ function App() {
           )
         );
         setNotice(`${application.company} moved to ${getApplicationStatusLabel(status)}.`);
+        if (shouldShowStatusConfetti(status)) {
+          setConfettiBurst({ id: Date.now(), status });
+        }
         await refreshApplicationActivity();
       } catch (statusError) {
         setError(statusError instanceof Error ? statusError.message : "Could not update application status.");
@@ -1486,6 +2343,7 @@ function App() {
 
   return (
     <Theme theme={carbonTheme} className={`app-root app-root--${themeMode}`}>
+      <StatusConfetti burst={confettiBurst} />
       <Header aria-label="swe.locker" className="app-header">
         <SkipToContent />
         <HeaderName href="/" prefix="swe">
@@ -1510,7 +2368,7 @@ function App() {
                 selectedIndex={selectedTabIndex}
                 onChange={({ selectedIndex }) => {
                   setSelectedTabIndex(selectedIndex);
-                  if (selectedIndex === 2) {
+                  if (selectedIndex === 3) {
                     setHasOpenedStats(true);
                   }
                 }}
@@ -1521,15 +2379,11 @@ function App() {
                       <BreadcrumbItem href="/">Homepage</BreadcrumbItem>
                       <BreadcrumbItem isCurrentPage>{pageHeader.title}</BreadcrumbItem>
                     </Breadcrumb>
-                    <Tag type="gray" size="sm">
-                      {sourceConfig?.season ?? "Summer 2026"}
-                    </Tag>
                   </div>
 
                   <div className="page-header-content">
                     <div>
                       <h1>{pageHeader.title}</h1>
-                      <p>{pageHeader.subtitle}</p>
                     </div>
                     <div className="page-header-metric" aria-label={`${pageHeader.metricLabel}: ${pageHeader.metricValue}`}>
                       <span>{pageHeader.metricLabel}</span>
@@ -1541,6 +2395,7 @@ function App() {
                     <TabList aria-label="Dashboard sections" size="sm">
                       <Tab>Postings</Tab>
                       <Tab>Applications</Tab>
+                      <Tab>Resume Grader</Tab>
                       <Tab>Stats</Tab>
                     </TabList>
                   </div>
@@ -1626,30 +2481,18 @@ function App() {
                                 {visiblePostings.length} of {postings.length} postings shown
                               </p>
                             </div>
-                            {sourceConfig ? <Tag type="gray">{sourceConfig.season}</Tag> : null}
                           </div>
 
                           {isLoading ? <Loading description="Loading dashboard" withOverlay={false} /> : null}
 
-                          <div className="posting-list" aria-label="Internship postings">
-                            {visiblePostings.map((posting) => (
-                              <PostingCard
-                                key={posting.id}
-                                isSelected={posting.id === selectedPostingId}
-                                posting={posting}
-                                onFollow={handleFollow}
-                                onSelect={handleSelectPosting}
-                                onTrack={handleTrack}
-                              />
-                            ))}
-
-                            {!isLoading && visiblePostings.length === 0 ? (
-                              <div className="posting-empty">
-                                <p>No postings match the current filters.</p>
-                                <span>Adjust filters.</span>
-                              </div>
-                            ) : null}
-                          </div>
+                          <VirtualizedPostingList
+                            isLoading={isLoading}
+                            postings={visiblePostings}
+                            selectedPostingId={selectedPostingId}
+                            onFollow={handleFollow}
+                            onSelect={handleSelectPosting}
+                            onTrack={handleTrack}
+                          />
                         </Tile>
                       </Column>
 
@@ -1668,7 +2511,7 @@ function App() {
                             />
                           ) : null}
 
-                          <VisualizationPanel posting={selectedPosting} themeMode={themeMode} />
+                          <VisualizationPanel posting={selectedPosting} />
                         </div>
                       </Column>
                     </Grid>
@@ -1690,8 +2533,18 @@ function App() {
                       applications={applications}
                       isLoading={isLoading}
                       onArchive={handleApplicationArchive}
+                      onCreate={handleOpenManualApplicationModal}
                       onDelete={handleApplicationDelete}
                       onStatusChange={handleApplicationStatusChange}
+                    />
+                  </TabPanel>
+                  <TabPanel className="app-tab-panel">
+                    <ResumeGraderPanel
+                      isUploadPending={isResumeUploadPending}
+                      onUpload={handleResumeUpload}
+                      runs={resumeRuns}
+                      themeMode={themeMode}
+                      uploadError={resumeUploadError}
                     />
                   </TabPanel>
                   <TabPanel className="app-tab-panel">
@@ -1710,7 +2563,7 @@ function App() {
                     <StatsPanel
                       activityDays={activityDays}
                       applications={applications}
-                      isChartActive={hasOpenedStats || selectedTabIndex === 2}
+                      isChartActive={hasOpenedStats || selectedTabIndex === 3}
                       postings={postings}
                       themeMode={themeMode}
                     />
@@ -1744,6 +2597,91 @@ function App() {
             value={externalTrackingUrl}
             onChange={(event) => setExternalTrackingUrl(event.target.value)}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        modalHeading="Add application"
+        modalLabel="Application tracker"
+        open={isManualApplicationModalOpen}
+        primaryButtonDisabled={isManualApplicationSubmitDisabled}
+        primaryButtonText={isManualApplicationSubmitting ? "Adding" : "Add"}
+        secondaryButtonText="Cancel"
+        size="sm"
+        onRequestClose={handleCloseManualApplicationModal}
+        onRequestSubmit={() => void handleCreateManualApplication()}
+      >
+        <div className="track-modal-body">
+          <TextInput
+            id="manual-application-company"
+            labelText="Company"
+            placeholder="Company name"
+            size="sm"
+            value={manualApplicationForm.company}
+            onChange={(event) =>
+              setManualApplicationForm((currentForm) => ({
+                ...currentForm,
+                company: event.target.value
+              }))
+            }
+          />
+          <TextInput
+            id="manual-application-role"
+            labelText="Role"
+            placeholder="Software Engineer Intern"
+            size="sm"
+            value={manualApplicationForm.role}
+            onChange={(event) =>
+              setManualApplicationForm((currentForm) => ({
+                ...currentForm,
+                role: event.target.value
+              }))
+            }
+          />
+          <TextInput
+            id="manual-application-posting-url"
+            labelText="Posting link"
+            placeholder="https://company.example.com/job"
+            size="sm"
+            type="url"
+            value={manualApplicationForm.jobPostingUrl}
+            onChange={(event) =>
+              setManualApplicationForm((currentForm) => ({
+                ...currentForm,
+                jobPostingUrl: event.target.value
+              }))
+            }
+          />
+          <TextInput
+            id="manual-application-tracking-url"
+            labelText="Tracking link"
+            placeholder="https://company.example.com/application"
+            size="sm"
+            type="url"
+            value={manualApplicationForm.externalApplicationTrackingUrl}
+            onChange={(event) =>
+              setManualApplicationForm((currentForm) => ({
+                ...currentForm,
+                externalApplicationTrackingUrl: event.target.value
+              }))
+            }
+          />
+          <Select
+            id="manual-application-status"
+            labelText="Status"
+            size="sm"
+            value={manualApplicationForm.status}
+            onChange={(event) =>
+              setManualApplicationForm((currentForm) => ({
+                ...currentForm,
+                status: event.target.value as ApplicationStatus
+              }))
+            }
+          >
+            {applicationStatuses.map((option) => (
+              <SelectItem key={option.status} text={option.label} value={option.status} />
+            ))}
+          </Select>
         </div>
       </Modal>
     </Theme>
