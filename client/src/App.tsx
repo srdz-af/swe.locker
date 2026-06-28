@@ -154,14 +154,15 @@ const citizenshipFilters: PostingFacetFilter[] = [
 ];
 
 const statsOutcomeColors = {
-  applied: "#8d8d8d",
-  interview: "#1192e8",
-  offer: "#0f62fe",
+  applied: "#009d9a",
+  interview: "#8a3ffc",
+  offer: "#24a148",
   rejected: "#d02670"
 };
 
 const alluvialOutcomeColors = {
-  "In progress": statsOutcomeColors.applied,
+  Applied: statsOutcomeColors.applied,
+  Interview: statsOutcomeColors.interview,
   Offer: statsOutcomeColors.offer,
   Rejected: statsOutcomeColors.rejected
 };
@@ -920,6 +921,22 @@ function getApplicationResultStage(application: ApplicationDto) {
   return "In progress";
 }
 
+function getApplicationAlluvialColorGroup(application: ApplicationDto) {
+  if (application.status === "INTERVIEW") {
+    return "Interview";
+  }
+
+  if (application.status === "OFFER" || application.status === "HIRED") {
+    return "Offer";
+  }
+
+  if (application.status === "REJECTED") {
+    return "Rejected";
+  }
+
+  return "Applied";
+}
+
 function hasReachedInterview(application: ApplicationDto) {
   if (application.status === "INTERVIEW" || application.status === "OFFER" || application.status === "HIRED") {
     return true;
@@ -954,7 +971,7 @@ function incrementAlluvialLink(counts: Map<string, { group: string; source: stri
 }
 
 function getAlluvialOutcomeColor(group: string | undefined) {
-  return alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? alluvialOutcomeColors["In progress"];
+  return alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? statsOutcomeColors.applied;
 }
 
 function applyAlluvialOutcomeColors(container: HTMLElement) {
@@ -1001,7 +1018,6 @@ const OfficeImagePanel = memo(function OfficeImagePanel({ company, location }: {
 
   const officeImage = imageSearch?.images[0] ?? null;
   const imageSource = officeImage?.thumbnailUrl ?? officeImage?.imageUrl ?? null;
-  const searchUrl = imageSearch?.searchUrl ?? getOfficeImageSearchUrl(company, location);
 
   return (
     <div className="office-image-panel">
@@ -1018,36 +1034,14 @@ const OfficeImagePanel = memo(function OfficeImagePanel({ company, location }: {
           </div>
         )}
       </div>
-      <div className="office-image-actions">
-        <span>{imageSearch?.query ?? [company, "offices", location].filter(Boolean).join(" ")}</span>
-        <div>
-          {officeImage?.sourceUrl ? (
-            <Button kind="ghost" size="sm" renderIcon={Launch} href={officeImage.sourceUrl} target="_blank">
-              Source
-            </Button>
-          ) : null}
-          <Button kind="ghost" size="sm" renderIcon={Launch} href={searchUrl} target="_blank">
-            Images
-          </Button>
-        </div>
-      </div>
     </div>
   );
 });
-
-function getOfficeImageSearchUrl(company: string, location?: string) {
-  const searchUrl = new URL("https://duckduckgo.com/");
-  searchUrl.searchParams.set("q", [company, "offices", location].filter(Boolean).join(" "));
-  searchUrl.searchParams.set("iax", "images");
-  searchUrl.searchParams.set("ia", "images");
-  return searchUrl.toString();
-}
 
 const VisualizationPanel = memo(function VisualizationPanel({ posting }: { posting: JobPostingDto | null }) {
   if (!posting) {
     return (
       <Tile className="visualization-tile">
-        <h2>Posting details</h2>
         <div className="visualization-empty">
           <p>No posting selected.</p>
           <span>Select a posting to inspect its location and application details.</span>
@@ -1077,13 +1071,6 @@ const VisualizationPanel = memo(function VisualizationPanel({ posting }: { posti
 
   return (
     <Tile className="visualization-tile">
-      <div className="section-header">
-        <div>
-          <h2>Posting details</h2>
-          <p>{posting.company}</p>
-        </div>
-      </div>
-
       <OfficeImagePanel company={posting.company} location={officeImageLocation} />
 
       <div className="posting-detail-card">
@@ -1147,9 +1134,10 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
     for (const application of applications) {
       const reviewStage = getApplicationReviewStage(application);
       const resultStage = getApplicationResultStage(application);
+      const colorGroup = getApplicationAlluvialColorGroup(application);
 
-      incrementAlluvialLink(linkCounts, resultStage, application.company, reviewStage);
-      incrementAlluvialLink(linkCounts, resultStage, reviewStage, resultStage);
+      incrementAlluvialLink(linkCounts, colorGroup, application.company, reviewStage);
+      incrementAlluvialLink(linkCounts, colorGroup, reviewStage, resultStage);
     }
 
     return Array.from(linkCounts.values()).sort(
@@ -1203,7 +1191,7 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
         scale: alluvialOutcomeColors
       },
       getStrokeColor: (group, _label, _data, defaultStrokeColor) =>
-        alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? defaultStrokeColor ?? alluvialOutcomeColors["In progress"],
+        alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? defaultStrokeColor ?? statsOutcomeColors.applied,
       height: alluvialChartHeight,
       legend: {
         enabled: false
@@ -1509,14 +1497,12 @@ const ResumeGraderPanel = memo(function ResumeGraderPanel({
   isUploadPending,
   onUpload,
   runs,
-  themeMode,
-  uploadError
+  themeMode
 }: {
   isUploadPending: boolean;
   onUpload: (file: File) => void;
   runs: ResumeGraderRun[];
   themeMode: ThemeMode;
-  uploadError: string | null;
 }) {
   const latestRun = runs[0] ?? null;
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => latestRun?.id ?? null);
@@ -1663,31 +1649,6 @@ const ResumeGraderPanel = memo(function ResumeGraderPanel({
 
   return (
     <div className="resume-grader-stack">
-      <div className="resume-upload-actions">
-        {isUploadPending ? <Loading description="Extracting resume text" small withOverlay={false} /> : null}
-        <FileUploaderButton
-          accept={resumeAcceptedFileTypes}
-          buttonKind="secondary"
-          disabled={isUploadPending}
-          disableLabelChanges
-          id="resume-upload"
-          labelText={isUploadPending ? "Extracting..." : "Upload resume"}
-          multiple={false}
-          name="resume-upload"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-
-            if (file) {
-              onUpload(file);
-            }
-          }}
-          size="sm"
-        />
-      </div>
-
-      {uploadError ? <InlineNotification kind="error" lowContrast title="Resume upload failed" subtitle={uploadError} hideCloseButton /> : null}
-
       <Tile className="resume-grader-latest-tile">
         {latestRun ? (
           <div className="resume-grader-latest">
@@ -1782,6 +1743,28 @@ const ResumeGraderPanel = memo(function ResumeGraderPanel({
           <div>
             <h2>Past runs</h2>
             <p>{runs.length} resume analyses</p>
+          </div>
+          <div className="resume-runs-header-actions">
+            {isUploadPending ? <Loading description="Extracting resume text" small withOverlay={false} /> : null}
+            <FileUploaderButton
+              accept={resumeAcceptedFileTypes}
+              buttonKind="primary"
+              disabled={isUploadPending}
+              disableLabelChanges
+              id="resume-new-run"
+              labelText="New run"
+              multiple={false}
+              name="resume-new-run"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+
+                if (file) {
+                  onUpload(file);
+                }
+              }}
+              size="sm"
+            />
           </div>
         </div>
 
@@ -2498,37 +2481,12 @@ function App() {
 
                       <Column sm={4} md={8} lg={4} className="posting-side-column">
                         <div className="sidebar-stack">
-                          {error ? (
-                            <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton />
-                          ) : null}
-                          {notice ? (
-                            <InlineNotification
-                              kind="success"
-                              lowContrast
-                              title="Updated"
-                              subtitle={notice}
-                              onCloseButtonClick={() => setNotice(null)}
-                            />
-                          ) : null}
-
                           <VisualizationPanel posting={selectedPosting} />
                         </div>
                       </Column>
                     </Grid>
                   </TabPanel>
                   <TabPanel className="app-tab-panel">
-                    <div className="tracker-notices">
-                      {error ? <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton /> : null}
-                      {notice ? (
-                        <InlineNotification
-                          kind="success"
-                          lowContrast
-                          title="Updated"
-                          subtitle={notice}
-                          onCloseButtonClick={() => setNotice(null)}
-                        />
-                      ) : null}
-                    </div>
                     <ApplicationTrackerPanel
                       applications={applications}
                       isLoading={isLoading}
@@ -2544,22 +2502,9 @@ function App() {
                       onUpload={handleResumeUpload}
                       runs={resumeRuns}
                       themeMode={themeMode}
-                      uploadError={resumeUploadError}
                     />
                   </TabPanel>
                   <TabPanel className="app-tab-panel">
-                    <div className="tracker-notices">
-                      {error ? <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton /> : null}
-                      {notice ? (
-                        <InlineNotification
-                          kind="success"
-                          lowContrast
-                          title="Updated"
-                          subtitle={notice}
-                          onCloseButtonClick={() => setNotice(null)}
-                        />
-                      ) : null}
-                    </div>
                     <StatsPanel
                       activityDays={activityDays}
                       applications={applications}
@@ -2574,6 +2519,24 @@ function App() {
           </Column>
         </Grid>
       </Content>
+
+      {error || notice || resumeUploadError ? (
+        <div className="floating-notices" aria-live="polite">
+          {error ? <InlineNotification kind="error" lowContrast title="Dashboard error" subtitle={error} hideCloseButton /> : null}
+          {resumeUploadError ? (
+            <InlineNotification kind="error" lowContrast title="Resume upload failed" subtitle={resumeUploadError} hideCloseButton />
+          ) : null}
+          {notice ? (
+            <InlineNotification
+              kind="success"
+              lowContrast
+              title="Updated"
+              subtitle={notice}
+              onCloseButtonClick={() => setNotice(null)}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       <Modal
         modalHeading={pendingTrackPosting ? `Track ${pendingTrackPosting.company}` : "Track application"}
