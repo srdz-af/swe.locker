@@ -33,6 +33,14 @@ const baseResumeRun = {
     { label: "Structure", value: 90 },
     { label: "Impact", value: 82 }
   ]),
+  comments: JSON.stringify([
+    {
+      id: "rank",
+      label: "Rank",
+      scoreLabel: "Rank B",
+      comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+    }
+  ]),
   createdAt: new Date("2026-06-01T00:00:00.000Z")
 };
 
@@ -46,6 +54,14 @@ describe("resumeRunService", () => {
       metrics: [
         { label: "Structure", value: 90 },
         { label: "Impact", value: 82 }
+      ],
+      comments: [
+        {
+          id: "rank",
+          label: "Rank",
+          scoreLabel: "Rank B",
+          comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+        }
       ]
     });
   });
@@ -64,6 +80,14 @@ describe("resumeRunService", () => {
         metrics: [
           { label: "Structure", value: 90 },
           { label: "Impact", value: 82 }
+        ],
+        comments: [
+          {
+            id: "rank",
+            label: "Rank",
+            scoreLabel: "Rank B",
+            comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+          }
         ],
         createdAt: "2026-06-01T00:00:00.000Z"
       }
@@ -108,6 +132,14 @@ describe("resumeRunService", () => {
           { label: "Structure", value: 90 },
           { label: "Impact", value: 82 }
         ]),
+        comments: JSON.stringify([
+          {
+            id: "rank",
+            label: "Rank",
+            scoreLabel: "Rank B",
+            comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+          }
+        ]),
         createdAt: new Date("2026-06-01T00:00:00.000Z")
       }
     });
@@ -119,16 +151,18 @@ describe("resumeRunService", () => {
     await expect(
       createResumeRun({
         sourceName: "resume.pdf",
-        parsedText: "Resume",
+        parsedText: "Alex Rivera\nSoftware Engineer",
         grade: 0,
         tier: "C",
         verdict: "Client verdict.",
-        metrics: []
+        metrics: [],
+        comments: []
       } as Parameters<typeof createResumeRun>[0] & {
         grade: number;
         tier: string;
         verdict: string;
         metrics: [];
+        comments: [];
       })
     ).resolves.toMatchObject({
       grade: 86,
@@ -144,6 +178,14 @@ describe("resumeRunService", () => {
           metrics: JSON.stringify([
             { label: "Structure", value: 90 },
             { label: "Impact", value: 82 }
+          ]),
+          comments: JSON.stringify([
+            {
+              id: "rank",
+              label: "Rank",
+              scoreLabel: "Rank B",
+              comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+            }
           ])
         })
       })

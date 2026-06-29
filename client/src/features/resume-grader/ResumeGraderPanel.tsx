@@ -41,7 +41,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   const selectedGradeColor = useMemo(() => getResumeGradeColor(selectedGrade), [selectedGrade]);
   const hasSelectedGrade = selectedGrade !== null && selectedTier !== null;
   const selectedRunComments = selectedRun?.verdict ?? "Raw text extracted. Grading is not implemented yet.";
-  const resumeCommentGroups = useMemo(() => (selectedRun ? createResumeCommentGroups(selectedRun) : []), [selectedRun]);
+  const resumeCommentGroups = useMemo(() => selectedRun?.comments ?? [], [selectedRun]);
   const safeSelectedCommentGroupIndex =
     selectedCommentGroupIndex < resumeCommentGroups.length ? selectedCommentGroupIndex : 0;
   const selectedCommentGroup = resumeCommentGroups[safeSelectedCommentGroupIndex] ?? null;
@@ -461,18 +461,6 @@ type ResumeTextComment = {
   text: string;
 };
 
-type ResumeCommentGroup = {
-  id: string;
-  label: string;
-  scoreLabel: string;
-  comments: ResumeTextComment[];
-};
-
-type ResumeTextRange = {
-  start: number;
-  end: number;
-};
-
 type ResumeTextSegment = {
   comment: ResumeTextComment | null;
   text: string;
@@ -508,142 +496,6 @@ function ResumeOriginalText({
       )}
     </pre>
   );
-}
-
-function createResumeCommentGroups(run: ResumeGraderRun): ResumeCommentGroup[] {
-  const ranges = getResumeTextRanges(run.parsedText);
-  const rankComments = createResumeComments({
-    id: "rank",
-    index: 0,
-    label: "Rank",
-    ranges,
-    text: run.parsedText,
-    valueLabel: run.tier ?? "--",
-    verdict: run.verdict
-  });
-
-  return [
-    {
-      id: "rank",
-      label: "Rank",
-      scoreLabel: `Rank ${run.tier ?? "--"}`,
-      comments: rankComments
-    },
-    ...run.metrics.map((metric, metricIndex) => ({
-      id: `metric-${slugifyResumeCommentId(metric.label)}-${metricIndex}`,
-      label: metric.label,
-      scoreLabel: `${metric.value}/100`,
-      comments: createResumeComments({
-        id: `metric-${slugifyResumeCommentId(metric.label)}-${metricIndex}`,
-        index: metricIndex + 1,
-        label: metric.label,
-        ranges,
-        text: run.parsedText,
-        valueLabel: `${metric.value}/100`,
-        verdict: run.verdict
-      })
-    }))
-  ].filter((group) => group.comments.length > 0);
-}
-
-function createResumeComments({
-  id,
-  index,
-  label,
-  ranges,
-  text,
-  valueLabel,
-  verdict
-}: {
-  id: string;
-  index: number;
-  label: string;
-  ranges: ResumeTextRange[];
-  text: string;
-  valueLabel: string;
-  verdict: string | null;
-}): ResumeTextComment[] {
-  const selectedRanges = pickResumeCommentRanges(ranges, index);
-
-  return selectedRanges.map((range, commentIndex) => ({
-    id: `${id}-comment-${commentIndex}`,
-    start: range.start,
-    end: range.end,
-    text: getResumeCommentText({
-      commentIndex,
-      label,
-      preview: text.slice(range.start, range.end).trim(),
-      valueLabel,
-      verdict
-    })
-  }));
-}
-
-function getResumeCommentText({
-  commentIndex,
-  label,
-  preview,
-  valueLabel,
-  verdict
-}: {
-  commentIndex: number;
-  label: string;
-  preview: string;
-  valueLabel: string;
-  verdict: string | null;
-}) {
-  if (label === "Rank") {
-    return commentIndex === 0
-      ? verdict || `Rank ${valueLabel}: this excerpt contributes to the overall resume signal.`
-      : `Rank ${valueLabel}: this section affects seniority, scope, and evidence quality.`;
-  }
-
-  if (commentIndex === 0) {
-    return `${label} ${valueLabel}: this excerpt is one of the signals behind the score.`;
-  }
-
-  return `Improve ${label.toLowerCase()} by making this part more specific: "${truncateResumeCommentPreview(preview)}"`;
-}
-
-function getResumeTextRanges(text: string): ResumeTextRange[] {
-  const ranges: ResumeTextRange[] = [];
-  let cursor = 0;
-
-  for (const line of text.split("\n")) {
-    const lineStart = cursor;
-    const contentStartOffset = line.search(/\S/);
-
-    if (contentStartOffset >= 0) {
-      const endTrimmedLine = line.replace(/\s+$/g, "");
-      ranges.push({
-        start: lineStart + contentStartOffset,
-        end: lineStart + endTrimmedLine.length
-      });
-    }
-
-    cursor += line.length + 1;
-  }
-
-  if (ranges.length === 0 && text.length > 0) {
-    return [{ start: 0, end: text.length }];
-  }
-
-  return ranges;
-}
-
-function pickResumeCommentRanges(ranges: ResumeTextRange[], index: number) {
-  if (ranges.length === 0) {
-    return [];
-  }
-
-  const firstRange = ranges[index % ranges.length];
-  const secondRange = ranges[(index * 2 + 1) % ranges.length];
-
-  if (!secondRange || firstRange.start === secondRange.start) {
-    return [firstRange];
-  }
-
-  return [firstRange, secondRange];
 }
 
 function getResumeTextSegments(text: string, comments: ResumeTextComment[]): ResumeTextSegment[] {
@@ -689,12 +541,4 @@ function getResumeTextSegments(text: string, comments: ResumeTextComment[]): Res
 
 function clampResumeTextIndex(index: number, text: string) {
   return Math.max(0, Math.min(index, text.length));
-}
-
-function truncateResumeCommentPreview(value: string) {
-  return value.length > 96 ? `${value.slice(0, 93)}...` : value;
-}
-
-function slugifyResumeCommentId(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "metric";
 }

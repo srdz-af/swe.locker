@@ -98,6 +98,20 @@ export type ResumeGraderMetricDto = {
   value: number;
 };
 
+export type ResumeGraderCommentDto = {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+};
+
+export type ResumeGraderCommentGroupDto = {
+  id: string;
+  label: string;
+  scoreLabel: string;
+  comments: ResumeGraderCommentDto[];
+};
+
 export type ResumeRunDto = {
   id: string;
   sourceName: string;
@@ -106,6 +120,7 @@ export type ResumeRunDto = {
   tier: ResumeTier | null;
   verdict: string | null;
   metrics: ResumeGraderMetricDto[];
+  comments: ResumeGraderCommentGroupDto[];
   createdAt: string;
 };
 

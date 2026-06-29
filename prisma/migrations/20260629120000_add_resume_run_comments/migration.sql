@@ -1,0 +1,1 @@
+ALTER TABLE "ResumeRun" ADD COLUMN "comments" TEXT NOT NULL DEFAULT '[]';

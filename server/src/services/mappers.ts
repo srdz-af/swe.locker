@@ -72,6 +72,8 @@ function toApplicationEventDto(event: ApplicationEvent) {
 }
 
 export function toResumeRunDto(run: ResumeRun) {
+  const metrics = parseResumeMetrics(run.metrics);
+
   return {
     id: run.id,
     sourceName: run.sourceName,
@@ -79,7 +81,8 @@ export function toResumeRunDto(run: ResumeRun) {
     grade: run.grade,
     tier: run.tier,
     verdict: run.verdict,
-    metrics: parseResumeMetrics(run.metrics),
+    metrics,
+    comments: parseResumeComments((run as ResumeRun & { comments?: unknown }).comments),
     createdAt: run.createdAt.toISOString()
   };
 }
@@ -165,6 +168,74 @@ function parseResumeMetrics(value: unknown) {
       };
     })
     .filter((metric): metric is { label: string; value: number } => Boolean(metric));
+}
+
+function parseResumeComments(value: unknown) {
+  const parsedValue = parseJson(value);
+
+  if (!Array.isArray(parsedValue)) {
+    return [];
+  }
+
+  return parsedValue
+    .map((commentGroup) => {
+      if (!commentGroup || typeof commentGroup !== "object") {
+        return null;
+      }
+
+      const candidateGroup = commentGroup as {
+        id?: unknown;
+        label?: unknown;
+        scoreLabel?: unknown;
+        comments?: unknown;
+      };
+      if (
+        typeof candidateGroup.id !== "string" ||
+        typeof candidateGroup.label !== "string" ||
+        typeof candidateGroup.scoreLabel !== "string" ||
+        !Array.isArray(candidateGroup.comments)
+      ) {
+        return null;
+      }
+
+      const comments = candidateGroup.comments
+        .map((comment) => {
+          if (!comment || typeof comment !== "object") {
+            return null;
+          }
+
+          const candidateComment = comment as { id?: unknown; start?: unknown; end?: unknown; text?: unknown };
+          if (
+            typeof candidateComment.id !== "string" ||
+            typeof candidateComment.start !== "number" ||
+            typeof candidateComment.end !== "number" ||
+            typeof candidateComment.text !== "string" ||
+            !Number.isInteger(candidateComment.start) ||
+            !Number.isInteger(candidateComment.end)
+          ) {
+            return null;
+          }
+
+          return {
+            id: candidateComment.id,
+            start: candidateComment.start,
+            end: candidateComment.end,
+            text: candidateComment.text
+          };
+        })
+        .filter((comment): comment is { id: string; start: number; end: number; text: string } => Boolean(comment));
+
+      return {
+        id: candidateGroup.id,
+        label: candidateGroup.label,
+        scoreLabel: candidateGroup.scoreLabel,
+        comments
+      };
+    })
+    .filter(
+      (commentGroup): commentGroup is { id: string; label: string; scoreLabel: string; comments: Array<{ id: string; start: number; end: number; text: string }> } =>
+        Boolean(commentGroup)
+    );
 }
 
 function parseApplicationLinks(value: unknown) {

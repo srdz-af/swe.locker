@@ -4,7 +4,7 @@ import { HttpError } from "../errors.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ResumeTier } from "../generated/prisma/client.js";
 import { gradeResume } from "../grading/resumeGrader.js";
-import type { ResumeGradeMetric, ResumeRank } from "../grading/resumeGrader.js";
+import type { ResumeGradeCommentGroup, ResumeGradeMetric, ResumeRank } from "../grading/resumeGrader.js";
 import { toResumeRunDto } from "./mappers.js";
 
 const resumeTiers = new Set<ResumeTier>(["S", "A", "B", "C"]);
@@ -41,6 +41,7 @@ export async function createResumeRun(input: {
   const grade = normalizeGraderGrade(gradingResult.grade);
   const tier = normalizeGraderRank(gradingResult.rank);
   const metrics = normalizeGraderMetrics(gradingResult.metrics);
+  const comments = normalizeGraderCommentGroups(gradingResult.comments ?? [], parsedText);
   const data = {
     ownerKey: LOCAL_OWNER_KEY,
     sourceName,
@@ -49,6 +50,7 @@ export async function createResumeRun(input: {
     tier,
     verdict: gradingResult.verdict.trim() || null,
     metrics: JSON.stringify(metrics),
+    comments: JSON.stringify(comments),
     ...(createdAt ? { createdAt } : {})
   };
 
@@ -118,6 +120,50 @@ function normalizeGraderMetrics(metrics: ResumeGradeMetric[]) {
       value: metric.value
     };
   });
+}
+
+function normalizeGraderCommentGroups(commentGroups: ResumeGradeCommentGroup[], parsedText: string) {
+  return commentGroups
+    .map((commentGroup, groupIndex) => {
+      const label = commentGroup.label.trim();
+      const scoreLabel = commentGroup.scoreLabel.trim();
+      const id = commentGroup.id.trim() || `comment-group-${groupIndex}`;
+
+      if (!label || !scoreLabel || !Array.isArray(commentGroup.comments)) {
+        throw new Error("Resume grader returned invalid comments.");
+      }
+
+      const comments = commentGroup.comments.map((comment, commentIndex) => {
+        const text = comment.text.trim();
+        const commentId = comment.id.trim() || `${id}-comment-${commentIndex}`;
+
+        if (
+          !text ||
+          !Number.isInteger(comment.start) ||
+          !Number.isInteger(comment.end) ||
+          comment.start < 0 ||
+          comment.end <= comment.start ||
+          comment.end > parsedText.length
+        ) {
+          throw new Error("Resume grader returned invalid comments.");
+        }
+
+        return {
+          id: commentId,
+          start: comment.start,
+          end: comment.end,
+          text
+        };
+      });
+
+      return {
+        id,
+        label,
+        scoreLabel,
+        comments
+      };
+    })
+    .filter((commentGroup) => commentGroup.comments.length > 0);
 }
 
 function normalizeCreatedAt(value: string | undefined) {
