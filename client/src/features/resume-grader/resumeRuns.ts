@@ -144,10 +144,6 @@ export function toCreateResumeRunRequest(run: ResumeGraderRun): CreateResumeRunR
     id: run.id,
     sourceName: run.sourceName,
     parsedText: run.parsedText,
-    grade: run.grade,
-    tier: run.tier,
-    verdict: run.verdict,
-    metrics: run.metrics,
     createdAt: run.createdAt
   };
 }

@@ -112,10 +112,6 @@ function ApplicationCard({
         </OverflowMenu>
       </div>
 
-      <div className="application-card__meta">
-        <span>Updated {formatDate(application.updatedAt)}</span>
-      </div>
-
       <div
         className="application-status-control"
         style={{ "--application-status-color": getApplicationStatusColor(application.status) } as CSSProperties}
@@ -221,14 +217,16 @@ function ApplicationDetailsPanel({
           <div className="application-interview-editor__header">
             <h3>Interview dates</h3>
             <Button
+              className="application-editor-add-button"
               disabled={!canEditInterviewDates}
-              kind="tertiary"
+              hasIconOnly
+              iconDescription="Add interview date"
+              kind="ghost"
               renderIcon={Add}
               size="sm"
+              tooltipPosition="left"
               onClick={() => setInterviewDates((currentDates) => [...currentDates, createNewInterviewDateInput()])}
-            >
-              Add
-            </Button>
+            />
           </div>
           {interviewDates.length > 0 ? (
             <div className="application-interview-list">
@@ -321,13 +319,15 @@ function ApplicationDetailsPanel({
           <div className="application-link-editor__header">
             <h3>Links</h3>
             <Button
-              kind="tertiary"
+              className="application-editor-add-button"
+              hasIconOnly
+              iconDescription="Add link"
+              kind="ghost"
               renderIcon={Add}
               size="sm"
+              tooltipPosition="left"
               onClick={() => setLinks((currentLinks) => [...currentLinks, createNewApplicationLinkInput()])}
-            >
-              Add
-            </Button>
+            />
           </div>
 
           {systemLinks.length > 0 || links.length > 0 ? (

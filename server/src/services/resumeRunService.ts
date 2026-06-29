@@ -3,12 +3,9 @@ import { prisma } from "../db/prisma.js";
 import { HttpError } from "../errors.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ResumeTier } from "../generated/prisma/client.js";
+import { gradeResume } from "../grading/resumeGrader.js";
+import type { ResumeGradeMetric, ResumeRank } from "../grading/resumeGrader.js";
 import { toResumeRunDto } from "./mappers.js";
-
-type ResumeMetricInput = {
-  label: string;
-  value: number;
-};
 
 const resumeTiers = new Set<ResumeTier>(["S", "A", "B", "C"]);
 
@@ -27,31 +24,33 @@ export async function createResumeRun(input: {
   id?: string;
   sourceName: string;
   parsedText: string;
-  grade?: number | null;
-  tier?: string | null;
-  verdict?: string | null;
-  metrics?: ResumeMetricInput[];
   createdAt?: string;
 }) {
-  const grade = normalizeGrade(input.grade);
-  const tier = normalizeTier(input.tier);
   const sourceName = input.sourceName.trim();
   const parsedText = input.parsedText.trim();
   const createdAt = normalizeCreatedAt(input.createdAt);
+
+  if (!sourceName || !parsedText) {
+    throw new HttpError(400, "Invalid resume run payload.");
+  }
+
+  const gradingResult = gradeResume({
+    sourceName,
+    parsedText
+  });
+  const grade = normalizeGraderGrade(gradingResult.grade);
+  const tier = normalizeGraderRank(gradingResult.rank);
+  const metrics = normalizeGraderMetrics(gradingResult.metrics);
   const data = {
     ownerKey: LOCAL_OWNER_KEY,
     sourceName,
     parsedText,
     grade,
     tier,
-    verdict: input.verdict?.trim() || null,
-    metrics: JSON.stringify(input.metrics ?? []),
+    verdict: gradingResult.verdict.trim() || null,
+    metrics: JSON.stringify(metrics),
     ...(createdAt ? { createdAt } : {})
   };
-
-  if (!sourceName || !parsedText) {
-    throw new HttpError(400, "Invalid resume run payload.");
-  }
 
   try {
     const resumeRun = await prisma.resumeRun.create({
@@ -90,28 +89,35 @@ export async function deleteResumeRun(resumeRunId: string) {
   });
 }
 
-function normalizeGrade(value: number | null | undefined) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
+function normalizeGraderGrade(value: number) {
   if (!Number.isInteger(value) || value < 0 || value > 100) {
-    throw new HttpError(400, "Invalid resume run payload.");
+    throw new Error("Resume grader returned an invalid grade.");
   }
 
   return value;
 }
 
-function normalizeTier(value: string | null | undefined) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
+function normalizeGraderRank(value: ResumeRank) {
   if (!resumeTiers.has(value as ResumeTier)) {
-    throw new HttpError(400, "Invalid resume run payload.");
+    throw new Error("Resume grader returned an invalid rank.");
   }
 
   return value as ResumeTier;
+}
+
+function normalizeGraderMetrics(metrics: ResumeGradeMetric[]) {
+  return metrics.map((metric) => {
+    const label = metric.label.trim();
+
+    if (!label || !Number.isInteger(metric.value) || metric.value < 0 || metric.value > 100) {
+      throw new Error("Resume grader returned invalid metrics.");
+    }
+
+    return {
+      label,
+      value: metric.value
+    };
+  });
 }
 
 function normalizeCreatedAt(value: string | undefined) {

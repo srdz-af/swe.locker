@@ -152,9 +152,5 @@ export type CreateResumeRunRequest = {
   id?: string;
   sourceName: string;
   parsedText: string;
-  grade?: number | null;
-  tier?: ResumeTier | null;
-  verdict?: string | null;
-  metrics?: ResumeGraderMetricDto[];
   createdAt?: string;
 };

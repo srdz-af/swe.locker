@@ -82,6 +82,7 @@ export const VisualizationPanel = memo(function VisualizationPanel({ posting }: 
   }
 
   const officeImageLocation = getOfficeImageLocation(posting);
+  const secondaryApplicationUrls = posting.applicationUrls.slice(1);
   const detailRows = [
     { label: "Category", value: posting.category },
     { label: "Season", value: posting.season },
@@ -114,18 +115,20 @@ export const VisualizationPanel = memo(function VisualizationPanel({ posting }: 
         </dl>
       </div>
 
-      <div className="detail-actions">
-        {posting.applicationUrls.map((url, index) => (
-          <Button kind={index === 0 ? "primary" : "ghost"} size="sm" renderIcon={Launch} href={url} target="_blank" key={url}>
-            {index === 0 ? "Apply" : `Link ${index + 1}`}
-          </Button>
-        ))}
-        {posting.simplifyUrl ? (
-          <Button kind="ghost" size="sm" renderIcon={Launch} href={posting.simplifyUrl} target="_blank">
-            Simplify
-          </Button>
-        ) : null}
-      </div>
+      {secondaryApplicationUrls.length > 0 || posting.simplifyUrl ? (
+        <div className="detail-actions">
+          {secondaryApplicationUrls.map((url, index) => (
+            <Button kind="ghost" size="sm" renderIcon={Launch} href={url} target="_blank" key={url}>
+              Link {index + 2}
+            </Button>
+          ))}
+          {posting.simplifyUrl ? (
+            <Button kind="ghost" size="sm" renderIcon={Launch} href={posting.simplifyUrl} target="_blank">
+              Simplify
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </Tile>
   );
 });

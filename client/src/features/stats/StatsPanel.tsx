@@ -7,8 +7,8 @@ import {
   useState
 } from "react";
 import { Checkbox, Tile } from "@carbon/react";
-import { AlluvialChart, DonutChart } from "@carbon/charts-react";
-import type { AlluvialChartOptions, ChartTabularData, DonutChartOptions } from "@carbon/charts-react";
+import { AlluvialChart, DonutChart, RadarChart } from "@carbon/charts-react";
+import type { AlluvialChartOptions, ChartTabularData, DonutChartOptions, RadarChartOptions } from "@carbon/charts-react";
 import type {
   ApplicationActivityDayDto,
   ApplicationDto,
@@ -16,7 +16,7 @@ import type {
   JobPostingDto
 } from "../../../../shared/src/index";
 import { applicationStatuses, getApplicationStatusColor } from "../../constants";
-import type { ThemeMode } from "../../types/app";
+import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatApplicationTooltipValue } from "../../utils/format";
 
 const applicationOutcomeColors = Object.fromEntries(applicationStatuses.map((option) => [option.label, option.color]));
@@ -33,6 +33,26 @@ type AlluvialLinkElement = SVGPathElement & {
     group?: string;
   };
 };
+
+type IncomingInterviewItem = {
+  applicationId: string;
+  company: string;
+  date: Date;
+  dateKey: string;
+  label: string;
+  role: string;
+  timeLabel: string;
+};
+
+type IncomingCalendarDay = {
+  date: Date;
+  dateKey: string;
+  dayNumber: number;
+  interviews: IncomingInterviewItem[];
+  isToday: boolean;
+};
+
+const calendarWeekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function getApplicationStatusCounts(applications: ApplicationDto[]) {
   const counts = new Map<ApplicationStatus, number>();
@@ -108,6 +128,133 @@ function formatActivityDate(dateKey: string) {
     timeZone: "UTC",
     year: "numeric"
   });
+}
+
+function getLocalDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getMonthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function isSameMonth(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+}
+
+function formatCalendarMonth(date: Date) {
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function formatIncomingCalendarDate(date: Date) {
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function formatInterviewTime(date: Date) {
+  return date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function getIncomingInterviews(applications: ApplicationDto[]) {
+  const now = Date.now();
+
+  return applications
+    .flatMap((application) => {
+      if (application.status !== "INTERVIEW") {
+        return [];
+      }
+
+      return application.interviewDates.flatMap((interviewDate, index) => {
+        const date = new Date(interviewDate.date);
+
+        if (!Number.isFinite(date.getTime()) || date.getTime() < now) {
+          return [];
+        }
+
+        return [
+          {
+            applicationId: application.id,
+            company: application.company,
+            date,
+            dateKey: getLocalDateKey(date),
+            label: interviewDate.label?.trim() || `Interview ${index + 1}`,
+            role: application.role,
+            timeLabel: formatInterviewTime(date)
+          }
+        ];
+      });
+    })
+    .sort((left, right) => left.date.getTime() - right.date.getTime());
+}
+
+function getIncomingCalendarMonth(interviews: IncomingInterviewItem[]) {
+  const currentMonth = getMonthStart(new Date());
+
+  if (interviews.some((interview) => isSameMonth(interview.date, currentMonth))) {
+    return currentMonth;
+  }
+
+  const firstInterview = interviews[0];
+  return firstInterview ? getMonthStart(firstInterview.date) : currentMonth;
+}
+
+function getIncomingCalendarDays(month: Date, interviews: IncomingInterviewItem[]) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const firstWeekday = new Date(year, monthIndex, 1).getDay();
+  const todayKey = getLocalDateKey(new Date());
+  const interviewsByDate = new Map<string, IncomingInterviewItem[]>();
+
+  for (const interview of interviews) {
+    if (!isSameMonth(interview.date, month)) {
+      continue;
+    }
+
+    interviewsByDate.set(interview.dateKey, [...(interviewsByDate.get(interview.dateKey) ?? []), interview]);
+  }
+
+  const calendarDays: Array<IncomingCalendarDay | null> = Array.from({ length: firstWeekday }, () => null);
+
+  for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber += 1) {
+    const date = new Date(year, monthIndex, dayNumber);
+    const dateKey = getLocalDateKey(date);
+
+    calendarDays.push({
+      date,
+      dateKey,
+      dayNumber,
+      interviews: interviewsByDate.get(dateKey) ?? [],
+      isToday: dateKey === todayKey
+    });
+  }
+
+  return calendarDays;
+}
+
+function getInterviewDayLabel(day: IncomingCalendarDay) {
+  if (day.interviews.length === 0) {
+    return formatIncomingCalendarDate(day.date);
+  }
+
+  const interviewDetails = day.interviews
+    .map((interview) => `${interview.timeLabel} ${interview.company}: ${interview.role} (${interview.label})`)
+    .join("; ");
+
+  return `${formatIncomingCalendarDate(day.date)}: ${interviewDetails}`;
 }
 
 function getApplicationReviewStage(application: ApplicationDto) {
@@ -363,6 +510,166 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
   );
 });
 
+const IncomingInterviewsCalendarTile = memo(function IncomingInterviewsCalendarTile({
+  applications = []
+}: {
+  applications?: ApplicationDto[];
+}) {
+  const incomingInterviews = useMemo(() => getIncomingInterviews(applications), [applications]);
+  const calendarMonth = useMemo(() => getIncomingCalendarMonth(incomingInterviews), [incomingInterviews]);
+  const calendarDays = useMemo(() => getIncomingCalendarDays(calendarMonth, incomingInterviews), [calendarMonth, incomingInterviews]);
+  const incomingSummary = `${incomingInterviews.length} incoming ${
+    incomingInterviews.length === 1 ? "interview" : "interviews"
+  }`;
+  const incomingCalendarStyle = {
+    "--incoming-interview-color": getApplicationStatusColor("INTERVIEW")
+  } as CSSProperties;
+
+  return (
+    <Tile className="incoming-interviews-tile">
+      <div className="section-header">
+        <div>
+          <h2>Upcoming interviews</h2>
+          <p>{incomingInterviews.length > 0 ? incomingSummary : "No incoming interviews"}</p>
+        </div>
+      </div>
+
+      <div
+        className="incoming-calendar"
+        style={incomingCalendarStyle}
+        aria-label={`${formatCalendarMonth(calendarMonth)} interview calendar`}
+      >
+        <div className="incoming-calendar__month">{formatCalendarMonth(calendarMonth)}</div>
+        <div className="incoming-calendar__weekdays" aria-hidden="true">
+          {calendarWeekdayLabels.map((weekday) => (
+            <span key={weekday}>{weekday}</span>
+          ))}
+        </div>
+        <div className="incoming-calendar__grid">
+          {calendarDays.map((day, index) =>
+            day ? (
+              <span
+                className={`incoming-calendar__day${day.isToday ? " incoming-calendar__day--today" : ""}${
+                  day.interviews.length > 0 ? " incoming-calendar__day--has-interview" : ""
+                }`}
+                key={day.dateKey}
+                title={getInterviewDayLabel(day)}
+                aria-label={getInterviewDayLabel(day)}
+              >
+                <span>{day.dayNumber}</span>
+                {day.interviews.length > 0 ? <span className="incoming-calendar__indicator" aria-hidden="true" /> : null}
+              </span>
+            ) : (
+              <span className="incoming-calendar__day incoming-calendar__day--empty" key={`empty-${index}`} aria-hidden="true" />
+            )
+          )}
+        </div>
+      </div>
+    </Tile>
+  );
+});
+
+const LatestResumeRadarTile = memo(function LatestResumeRadarTile({
+  isChartActive = false,
+  runs = [],
+  themeMode
+}: {
+  isChartActive?: boolean;
+  runs?: ResumeGraderRun[];
+  themeMode: ThemeMode;
+}) {
+  const latestRun = runs[0] ?? null;
+  const [canRenderRadar, setCanRenderRadar] = useState(false);
+  const latestRunRadarData = useMemo<ChartTabularData>(
+    () =>
+      latestRun?.metrics.map((metric) => ({
+        group: "Latest",
+        metric: metric.label,
+        value: metric.value
+      })) ?? [],
+    [latestRun]
+  );
+  const radarOptions = useMemo<RadarChartOptions>(
+    () => ({
+      accessibility: {
+        svgAriaLabel: "Latest resume grader metric profile"
+      },
+      data: {
+        groupMapsTo: "group"
+      },
+      height: "14rem",
+      legend: {
+        enabled: false
+      },
+      radar: {
+        axes: {
+          angle: "metric",
+          value: "value"
+        },
+        maxValue: 100
+      },
+      theme: themeMode === "dark" ? "g100" : "white",
+      toolbar: {
+        enabled: false
+      }
+    }),
+    [themeMode]
+  );
+  const radarChartKey = useMemo(
+    () => `${themeMode}-${latestRun?.id ?? "none"}-${latestRunRadarData.map((item) => `${item.metric}:${item.value}`).join("|")}`,
+    [latestRun?.id, latestRunRadarData, themeMode]
+  );
+
+  useEffect(() => {
+    if (latestRunRadarData.length === 0 || !isChartActive) {
+      setCanRenderRadar(false);
+      return;
+    }
+
+    setCanRenderRadar(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setCanRenderRadar(true);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isChartActive, latestRunRadarData.length, radarChartKey]);
+
+  return (
+    <Tile className="stats-resume-radar-tile">
+      <div className="section-header">
+        <div>
+          <h2>Last resume run</h2>
+          <p>{latestRun?.sourceName ?? "No resume runs"}</p>
+        </div>
+        <div
+          className="stats-resume-run-score"
+          aria-label={`Grade ${latestRun?.grade ?? "not graded"}, rank ${latestRun?.tier ?? "not graded"}`}
+        >
+          <strong className="stats-resume-run-grade">{latestRun?.grade ?? "--"}</strong>
+          <strong className="stats-resume-run-rank">{latestRun?.tier ?? "--"}</strong>
+        </div>
+      </div>
+
+      {latestRun ? (
+        <div className="stats-resume-radar-panel">
+          {canRenderRadar && isChartActive ? (
+            <div className="stats-resume-radar-chart">
+              <RadarChart data={latestRunRadarData} key={radarChartKey} options={radarOptions} />
+            </div>
+          ) : latestRunRadarData.length > 0 ? (
+            <div className="stats-resume-radar-placeholder" aria-hidden="true" />
+          ) : (
+            <div className="stats-resume-radar-placeholder" aria-label="No metric scores yet" />
+          )}
+        </div>
+      ) : (
+        <div className="stats-resume-radar-panel">
+          <div className="stats-resume-radar-placeholder" aria-label="No resume runs yet" />
+        </div>
+      )}
+    </Tile>
+  );
+});
+
 const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapTile({
   days = []
 }: {
@@ -551,12 +858,14 @@ export const StatsPanel = memo(function StatsPanel({
   applications,
   isChartActive,
   postings,
+  resumeRuns,
   themeMode
 }: {
   activityDays: ApplicationActivityDayDto[];
   applications: ApplicationDto[];
   isChartActive: boolean;
   postings: JobPostingDto[];
+  resumeRuns: ResumeGraderRun[];
   themeMode: ThemeMode;
 }) {
   return (
@@ -565,7 +874,11 @@ export const StatsPanel = memo(function StatsPanel({
         <TrackingResultsTile applications={applications} isChartActive={isChartActive} themeMode={themeMode} />
         <StatsOverviewTile applications={applications} postings={postings} themeMode={themeMode} />
       </div>
-      <ApplicationActivityHeatmapTile days={activityDays} />
+      <div className="stats-activity-row">
+        <IncomingInterviewsCalendarTile applications={applications} />
+        <ApplicationActivityHeatmapTile days={activityDays} />
+        <LatestResumeRadarTile isChartActive={isChartActive} runs={resumeRuns} themeMode={themeMode} />
+      </div>
     </div>
   );
 });

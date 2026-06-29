@@ -163,6 +163,18 @@
   line-height: 1.42857;
 }
 
+.application-editor-add-button,
+.application-editor-add-button:hover,
+.application-editor-add-button:focus {
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+}
+
+.application-editor-add-button:disabled {
+  color: var(--cds-text-disabled, #8d8d8d);
+}
+
 .application-interview-list {
   display: grid;
   gap: 0.5rem;
@@ -339,7 +351,6 @@
 }
 
 .application-card p,
-.application-card__meta,
 .kanban-empty,
 .track-modal-body p {
   margin: 0;

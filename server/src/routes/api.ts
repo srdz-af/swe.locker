@@ -258,21 +258,12 @@ const applicationActivityQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(9999).optional()
 });
 
-const resumeMetricSchema = z.object({
-  label: z.string().trim().min(1),
-  value: z.number().int().min(0).max(100)
-});
-
 const createResumeRunBodySchema = z.object({
   id: z.string().trim().min(1).optional(),
   sourceName: z.string().trim().min(1),
   parsedText: z.string().trim().min(1),
-  grade: z.number().int().min(0).max(100).optional().nullable(),
-  tier: z.enum(["S", "A", "B", "C"]).optional().nullable(),
-  verdict: z.string().trim().optional().nullable(),
-  metrics: z.array(resumeMetricSchema).optional(),
   createdAt: z.string().datetime({ offset: true }).optional()
-});
+}).strict();
 
 apiRouter.use((error: unknown, _request: Request, _response: Response, next: NextFunction) => {
   if (error instanceof z.ZodError) {

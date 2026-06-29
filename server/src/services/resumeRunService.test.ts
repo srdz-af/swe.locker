@@ -11,9 +11,15 @@ const prismaMock = vi.hoisted(() => ({
   }
 }));
 
+const resumeGraderMock = vi.hoisted(() => ({
+  gradeResume: vi.fn()
+}));
+
 vi.mock("../db/prisma.js", () => ({
   prisma: prismaMock
 }));
+
+vi.mock("../grading/resumeGrader.js", () => resumeGraderMock);
 
 const baseResumeRun = {
   id: "resume_run_1",
@@ -33,6 +39,15 @@ const baseResumeRun = {
 describe("resumeRunService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resumeGraderMock.gradeResume.mockReturnValue({
+      grade: 86,
+      rank: "B",
+      verdict: "Temporary random grading result.",
+      metrics: [
+        { label: "Structure", value: 90 },
+        { label: "Impact", value: 82 }
+      ]
+    });
   });
 
   it("lists resume runs for the local owner", async () => {
@@ -59,7 +74,7 @@ describe("resumeRunService", () => {
     });
   });
 
-  it("creates a resume run with the modeled fields", async () => {
+  it("creates a resume run from backend grader output", async () => {
     prismaMock.resumeRun.create.mockResolvedValue(baseResumeRun);
 
     await expect(
@@ -67,13 +82,6 @@ describe("resumeRunService", () => {
         id: "resume_run_1",
         sourceName: " alex-rivera-resume.pdf ",
         parsedText: " Alex Rivera\nSoftware Engineer ",
-        grade: 86,
-        tier: "B",
-        verdict: " Solid revision. ",
-        metrics: [
-          { label: "Structure", value: 90 },
-          { label: "Impact", value: 82 }
-        ],
         createdAt: "2026-06-01T00:00:00.000Z"
       })
     ).resolves.toMatchObject({
@@ -83,6 +91,10 @@ describe("resumeRunService", () => {
       tier: "B"
     });
 
+    expect(resumeGraderMock.gradeResume).toHaveBeenCalledWith({
+      sourceName: "alex-rivera-resume.pdf",
+      parsedText: "Alex Rivera\nSoftware Engineer"
+    });
     expect(prismaMock.resumeRun.create).toHaveBeenCalledWith({
       data: {
         id: "resume_run_1",
@@ -91,7 +103,7 @@ describe("resumeRunService", () => {
         parsedText: "Alex Rivera\nSoftware Engineer",
         grade: 86,
         tier: "B",
-        verdict: "Solid revision.",
+        verdict: "Temporary random grading result.",
         metrics: JSON.stringify([
           { label: "Structure", value: 90 },
           { label: "Impact", value: 82 }
@@ -101,31 +113,41 @@ describe("resumeRunService", () => {
     });
   });
 
-  it("rejects invalid grade and tier values", async () => {
-    await expect(
-      createResumeRun({
-        sourceName: "resume.pdf",
-        parsedText: "Resume",
-        grade: 120,
-        tier: "B"
-      })
-    ).rejects.toMatchObject({
-      statusCode: 400,
-      message: "Invalid resume run payload."
-    } satisfies Partial<HttpError>);
+  it("ignores client-supplied grading fields", async () => {
+    prismaMock.resumeRun.create.mockResolvedValue(baseResumeRun);
 
     await expect(
       createResumeRun({
         sourceName: "resume.pdf",
         parsedText: "Resume",
-        grade: 90,
-        tier: "E"
+        grade: 0,
+        tier: "C",
+        verdict: "Client verdict.",
+        metrics: []
+      } as Parameters<typeof createResumeRun>[0] & {
+        grade: number;
+        tier: string;
+        verdict: string;
+        metrics: [];
       })
-    ).rejects.toMatchObject({
-      statusCode: 400,
-      message: "Invalid resume run payload."
-    } satisfies Partial<HttpError>);
-    expect(prismaMock.resumeRun.create).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      grade: 86,
+      tier: "B"
+    });
+
+    expect(prismaMock.resumeRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          grade: 86,
+          tier: "B",
+          verdict: "Temporary random grading result.",
+          metrics: JSON.stringify([
+            { label: "Structure", value: 90 },
+            { label: "Impact", value: 82 }
+          ])
+        })
+      })
+    );
   });
 
   it("deletes a resume run for the local owner", async () => {

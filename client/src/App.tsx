@@ -700,6 +700,7 @@ function App() {
                       applications={applications}
                       isChartActive={hasOpenedStats || selectedTabIndex === 3}
                       postings={postings}
+                      resumeRuns={resumeRuns}
                       themeMode={themeMode}
                     />
                   </TabPanel>
