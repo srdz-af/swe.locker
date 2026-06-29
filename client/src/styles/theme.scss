@@ -1,0 +1,265 @@
+:root,
+:root[data-app-theme="light"],
+.app-root--light {
+  --app-background: #f4f4f4;
+  --app-surface: #ffffff;
+  --app-surface-alt: #f4f4f4;
+  --app-border: #e0e0e0;
+  --app-text: #161616;
+  --app-text-secondary: #262626;
+  --app-text-muted: #525252;
+  --app-shadow: transparent;
+  --activity-empty: #e0e0e0;
+  --activity-level-1: #d0e2ff;
+  --activity-level-2: #a6c8ff;
+  --activity-level-3: #4589ff;
+  --activity-level-4: #0f62fe;
+  --chart-node: #525252;
+  --chart-label-background: #ffffff;
+}
+
+:root[data-app-theme="dark"],
+.app-root--dark {
+  --app-background: #161616;
+  --app-surface: #262626;
+  --app-surface-alt: #393939;
+  --app-border: #525252;
+  --app-text: #f4f4f4;
+  --app-text-secondary: #e0e0e0;
+  --app-text-muted: #c6c6c6;
+  --app-shadow: rgba(0, 0, 0, 0.24);
+  --activity-empty: #393939;
+  --activity-level-1: #002d9c;
+  --activity-level-2: #0043ce;
+  --activity-level-3: #0f62fe;
+  --activity-level-4: #78a9ff;
+  --chart-node: #8d8d8d;
+  --chart-label-background: #262626;
+}
+
+:root {
+  background: var(--app-background);
+  color: var(--app-text);
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+.app-root {
+  min-height: 100vh;
+  min-block-size: 100dvh;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+.app-header {
+  box-shadow: 0 1px 0 var(--app-shadow);
+}
+
+.app-content {
+  min-height: calc(100vh - 3rem);
+  min-block-size: calc(100dvh - 3rem);
+  padding-block: 1.5rem;
+  background: var(--app-background);
+}
+
+.dashboard-grid {
+  row-gap: 1rem;
+}
+
+.dashboard-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-block-end: 1rem;
+}
+
+.dashboard-heading h1 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.dashboard-heading p,
+.section-header p,
+.posting-empty span {
+  max-width: 44rem;
+  color: var(--app-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.28572;
+}
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.page-header-box {
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+
+.page-header-breadcrumb-row {
+  display: flex;
+  min-block-size: 2.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.75rem 0;
+}
+
+.page-header-content {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0.75rem 1.25rem;
+}
+
+.page-header-content h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.page-header-metric {
+  display: grid;
+  min-inline-size: 5.5rem;
+  justify-items: end;
+  gap: 0.125rem;
+  color: var(--app-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.33333;
+}
+
+.page-header-metric strong {
+  color: var(--app-text);
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.page-header-tabs {
+  border-block-start: 1px solid var(--app-border);
+}
+
+.page-header-tabs .cds--tabs {
+  background: var(--app-surface);
+}
+
+.app-tab-panel {
+  padding: 1rem 0 0;
+}
+
+.dashboard-grid--tab {
+  padding-inline: 0;
+}
+
+.dashboard-grid--postings {
+  min-block-size: 0;
+}
+
+.feed-shell,
+.filters-tile,
+.visualization-tile,
+.tracking-results-tile,
+.activity-heatmap-tile,
+.stats-overview-tile,
+.resume-grader-latest-tile,
+.resume-runs-tile,
+.application-details-tile,
+.tracker-tile {
+  background: var(--app-surface);
+  color: var(--app-text);
+  padding: 0.75rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-block-end: 1rem;
+}
+
+.section-header h2,
+.filters-tile h2,
+.visualization-tile h2,
+.tracking-results-tile h2,
+.activity-heatmap-tile h2,
+.stats-overview-tile h2,
+.resume-grader-latest-tile h2,
+.resume-runs-tile h2,
+.application-details-tile h2,
+.tracker-tile h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.42857;
+}
+
+.filters-stack {
+  display: grid;
+  gap: 0.75rem;
+  margin-block-start: 1rem;
+}
+
+.posting-empty {
+  min-height: 8rem;
+  padding: 1.5rem;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.posting-empty p {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.sidebar-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.tracker-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stats-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.floating-notices {
+  position: fixed;
+  inset-block-end: 1rem;
+  inset-inline-start: 1rem;
+  z-index: 9000;
+  display: grid;
+  gap: 0.5rem;
+  inline-size: min(26rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.floating-notices .cds--inline-notification,
+.floating-notices .bx--inline-notification {
+  margin: 0;
+  max-inline-size: 100%;
+  pointer-events: auto;
+  box-shadow: 0 0.5rem 1.5rem var(--app-shadow);
+}

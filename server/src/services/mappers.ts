@@ -1,4 +1,4 @@
-import type { Application, ApplicationEvent, FetchRun, FollowedCompany, JobPosting, SourceConfig } from "../generated/prisma/client.js";
+import type { Application, ApplicationEvent, FetchRun, FollowedCompany, JobPosting, ResumeRun, SourceConfig } from "../generated/prisma/client.js";
 
 type ApplicationWithEvents = Application & {
   events?: ApplicationEvent[];
@@ -47,6 +47,9 @@ export function toApplicationDto(application: ApplicationWithEvents) {
     role: application.role,
     jobPostingUrl: application.jobPostingUrl,
     externalApplicationTrackingUrl: application.externalApplicationTrackingUrl,
+    notes: application.notes,
+    interviewDates: parseApplicationInterviewDates(application.interviewDates),
+    links: parseApplicationLinks(application.links),
     status: application.status,
     archivedAt: application.archivedAt?.toISOString() ?? null,
     createdAt: application.createdAt.toISOString(),
@@ -65,6 +68,19 @@ function toApplicationEventDto(event: ApplicationEvent) {
     newStatus: event.newStatus,
     eventDate: event.eventDate.toISOString(),
     createdAt: event.createdAt.toISOString()
+  };
+}
+
+export function toResumeRunDto(run: ResumeRun) {
+  return {
+    id: run.id,
+    sourceName: run.sourceName,
+    parsedText: run.parsedText,
+    grade: run.grade,
+    tier: run.tier,
+    verdict: run.verdict,
+    metrics: parseResumeMetrics(run.metrics),
+    createdAt: run.createdAt.toISOString()
   };
 }
 
@@ -122,5 +138,102 @@ function parseStringArray(value: unknown) {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function parseResumeMetrics(value: unknown) {
+  const parsedValue = parseJson(value);
+
+  if (!Array.isArray(parsedValue)) {
+    return [];
+  }
+
+  return parsedValue
+    .map((metric) => {
+      if (!metric || typeof metric !== "object") {
+        return null;
+      }
+
+      const candidate = metric as { label?: unknown; value?: unknown };
+      if (typeof candidate.label !== "string" || typeof candidate.value !== "number" || !Number.isFinite(candidate.value)) {
+        return null;
+      }
+
+      return {
+        label: candidate.label,
+        value: candidate.value
+      };
+    })
+    .filter((metric): metric is { label: string; value: number } => Boolean(metric));
+}
+
+function parseApplicationLinks(value: unknown) {
+  const parsedValue = parseJson(value);
+
+  if (!Array.isArray(parsedValue)) {
+    return [];
+  }
+
+  return parsedValue
+    .map((link) => {
+      if (!link || typeof link !== "object") {
+        return null;
+      }
+
+      const candidate = link as { label?: unknown; url?: unknown };
+      if (typeof candidate.url !== "string") {
+        return null;
+      }
+
+      return {
+        label: typeof candidate.label === "string" && candidate.label.trim() ? candidate.label : null,
+        url: candidate.url
+      };
+    })
+    .filter((link): link is { label: string | null; url: string } => Boolean(link));
+}
+
+function parseApplicationInterviewDates(value: unknown) {
+  const parsedValue = parseJson(value);
+
+  if (!Array.isArray(parsedValue)) {
+    return [];
+  }
+
+  return parsedValue
+    .map((interviewDate, index) => {
+      if (typeof interviewDate === "string") {
+        return {
+          label: `Interview ${index + 1}`,
+          date: interviewDate
+        };
+      }
+
+      if (!interviewDate || typeof interviewDate !== "object") {
+        return null;
+      }
+
+      const candidate = interviewDate as { label?: unknown; date?: unknown };
+      if (typeof candidate.date !== "string") {
+        return null;
+      }
+
+      return {
+        label: typeof candidate.label === "string" && candidate.label.trim() ? candidate.label : `Interview ${index + 1}`,
+        date: candidate.date
+      };
+    })
+    .filter((interviewDate): interviewDate is { label: string; date: string } => Boolean(interviewDate));
+}
+
+function parseJson(value: unknown) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
   }
 }

@@ -5,6 +5,7 @@ import {
   createManualApplication,
   listApplicationActivity,
   listApplications,
+  updateApplicationDetails,
   updateApplicationStatus
 } from "./applicationService.js";
 
@@ -36,6 +37,9 @@ const baseApplication = {
   role: "Software Engineer Intern",
   jobPostingUrl: "https://jobs.example.com/acme",
   externalApplicationTrackingUrl: null,
+  notes: null,
+  interviewDates: "[]",
+  links: "[]",
   status: "APPLIED",
   archivedAt: null,
   createdAt: new Date("2026-06-01T00:00:00.000Z"),
@@ -64,6 +68,9 @@ describe("applicationService", () => {
         role: "Software Engineer Intern",
         jobPostingUrl: "https://jobs.example.com/acme",
         externalApplicationTrackingUrl: null,
+        notes: null,
+        interviewDates: [],
+        links: [],
         status: "APPLIED",
         archivedAt: null,
         createdAt: "2026-06-01T00:00:00.000Z",
@@ -227,6 +234,52 @@ describe("applicationService", () => {
         }
       }
     });
+  });
+
+  it("updates application details without creating a status event", async () => {
+    const updatedApplication = {
+      ...baseApplication,
+      notes: "Recruiter screen scheduled.",
+      interviewDates: JSON.stringify([{ label: "Recruiter screen", date: "2026-07-14T15:00:00.000Z" }]),
+      links: JSON.stringify([{ label: "Recruiter thread", url: "https://mail.example.com/thread" }]),
+      updatedAt: new Date("2026-06-05T00:00:00.000Z")
+    };
+    prismaMock.application.findFirst.mockResolvedValue(baseApplication);
+    prismaMock.application.update.mockResolvedValue(updatedApplication);
+
+    await expect(
+      updateApplicationDetails("application_1", {
+        notes: " Recruiter screen scheduled. ",
+        interviewDates: [{ label: " Recruiter screen ", date: "2026-07-14T15:00:00.000Z" }],
+        links: [{ label: " Recruiter thread ", url: "https://mail.example.com/thread" }]
+      })
+    ).resolves.toMatchObject({
+      id: "application_1",
+      notes: "Recruiter screen scheduled.",
+      interviewDates: [{ label: "Recruiter screen", date: "2026-07-14T15:00:00.000Z" }],
+      links: [{ label: "Recruiter thread", url: "https://mail.example.com/thread" }]
+    });
+    expect(prismaMock.application.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "application_1",
+        ownerKey: "local",
+        archivedAt: null
+      }
+    });
+    expect(prismaMock.application.update).toHaveBeenCalledWith({
+      where: { id: "application_1" },
+      data: {
+        notes: "Recruiter screen scheduled.",
+        interviewDates: JSON.stringify([{ label: "Recruiter screen", date: "2026-07-14T15:00:00.000Z" }]),
+        links: JSON.stringify([{ label: "Recruiter thread", url: "https://mail.example.com/thread" }])
+      },
+      include: {
+        events: {
+          orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }]
+        }
+      }
+    });
+    expect(prismaMock.applicationEvent.create).not.toHaveBeenCalled();
   });
 
   it("archives a tracked application", async () => {

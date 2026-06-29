@@ -26,6 +26,13 @@ enum ApplicationEventType {
   STATUS_CHANGED
 }
 
+enum ResumeTier {
+  S
+  A
+  B
+  C
+}
+
 model SourceConfig {
   id                 String       @id @default(cuid())
   sourceKey          String       @unique
@@ -118,6 +125,9 @@ model Application {
   role                           String
   jobPostingUrl                  String?
   externalApplicationTrackingUrl String?
+  notes                          String?
+  interviewDates                 String             @default("[]")
+  links                          String             @default("[]")
   status                         ApplicationStatus  @default(APPLIED)
   archivedAt                     DateTime?
   createdAt                      DateTime           @default(now())
@@ -144,4 +154,19 @@ model ApplicationEvent {
   @@index([ownerKey])
   @@index([applicationId])
   @@index([eventDate])
+}
+
+model ResumeRun {
+  id         String      @id @default(cuid())
+  ownerKey   String      @default("local")
+  sourceName String
+  parsedText String
+  grade      Int?
+  tier       ResumeTier?
+  verdict    String?
+  metrics    String      @default("[]")
+  createdAt  DateTime    @default(now())
+
+  @@index([ownerKey])
+  @@index([createdAt])
 }

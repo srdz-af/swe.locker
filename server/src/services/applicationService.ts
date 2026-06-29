@@ -182,6 +182,41 @@ export async function updateApplicationStatus(applicationId: string, status: str
   return toApplicationDto(updatedApplication);
 }
 
+export async function updateApplicationDetails(
+  applicationId: string,
+  input: {
+    notes?: string | null;
+    interviewDates?: Array<{ label?: string | null; date: string }>;
+    links?: Array<{ label?: string | null; url: string }>;
+  }
+) {
+  const application = await prisma.application.findFirst({
+    where: {
+      id: applicationId,
+      ownerKey: LOCAL_OWNER_KEY,
+      archivedAt: null
+    }
+  });
+
+  if (!application) {
+    throw new HttpError(404, "Tracked application not found.");
+  }
+
+  const updatedApplication = await prisma.application.update({
+    where: {
+      id: application.id
+    },
+    data: {
+      ...(Object.hasOwn(input, "notes") ? { notes: input.notes?.trim() || null } : {}),
+      ...(input.interviewDates ? { interviewDates: JSON.stringify(input.interviewDates.map(normalizeInterviewDate)) } : {}),
+      ...(input.links ? { links: JSON.stringify(input.links.map(normalizeApplicationLink)) } : {})
+    },
+    include: applicationEventsInclude
+  });
+
+  return toApplicationDto(updatedApplication);
+}
+
 function isApplicationStatus(value: string): value is ApplicationStatus {
   return applicationStatuses.has(value as ApplicationStatus);
 }
@@ -284,4 +319,23 @@ function getUtcDateOnly(date: Date) {
 
 function toDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function normalizeInterviewDate(value: { label?: string | null; date: string }) {
+  const date = new Date(value.date);
+  if (!Number.isFinite(date.getTime())) {
+    throw new HttpError(400, "Invalid application details payload.");
+  }
+
+  return {
+    label: value.label?.trim() || null,
+    date: date.toISOString()
+  };
+}
+
+function normalizeApplicationLink(link: { label?: string | null; url: string }) {
+  return {
+    label: link.label?.trim() || null,
+    url: link.url.trim()
+  };
 }

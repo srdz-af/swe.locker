@@ -2,12 +2,15 @@ import type {
   ApplicationActivityDayDto,
   ApplicationDto,
   ApplicationStatus,
+  CreateResumeRunRequest,
   CreateApplicationRequest,
   CreateManualApplicationRequest,
   FollowedCompanyDto,
   JobPostingDto,
   OfficeImageSearchDto,
+  ResumeRunDto,
   SourceConfigDto,
+  UpdateApplicationDetailsRequest,
   UpdateApplicationStatusRequest
 } from "../../shared/src/index";
 
@@ -107,6 +110,13 @@ export async function updateApplicationStatus(applicationId: string, status: App
   });
 }
 
+export async function updateApplicationDetails(applicationId: string, input: UpdateApplicationDetailsRequest) {
+  return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/details`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
 export async function deleteApplication(applicationId: string) {
   await request<void>(`/applications/${encodeURIComponent(applicationId)}`, {
     method: "DELETE"
@@ -116,6 +126,23 @@ export async function deleteApplication(applicationId: string) {
 export async function archiveApplication(applicationId: string) {
   return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/archive`, {
     method: "PATCH"
+  });
+}
+
+export async function listResumeRuns() {
+  return request<ResumeRunDto[]>("/resume-runs");
+}
+
+export async function createResumeRun(input: CreateResumeRunRequest) {
+  return request<ResumeRunDto>("/resume-runs", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteResumeRun(resumeRunId: string) {
+  await request<void>(`/resume-runs/${encodeURIComponent(resumeRunId)}`, {
+    method: "DELETE"
   });
 }
 

@@ -11,12 +11,14 @@ import {
   deleteApplication,
   listApplicationActivity,
   listApplications,
+  updateApplicationDetails,
   updateApplicationStatus
 } from "../services/applicationService.js";
 import { followCompany, unfollowCompany } from "../services/followedCompanyService.js";
 import { toSourceConfigDto } from "../services/mappers.js";
 import { searchOfficeImages } from "../services/officeImageService.js";
 import { listPostings } from "../services/postingService.js";
+import { createResumeRun, deleteResumeRun, listResumeRuns } from "../services/resumeRunService.js";
 import { ensureSourceConfig } from "../services/sourceConfigService.js";
 
 export const apiRouter = Router();
@@ -123,6 +125,18 @@ apiRouter.patch("/applications/:applicationId/status", async (request, response,
   }
 });
 
+apiRouter.patch("/applications/:applicationId/details", async (request, response, next) => {
+  try {
+    const body = updateApplicationDetailsBodySchema.safeParse(request.body);
+    if (!body.success) {
+      throw new HttpError(400, "Invalid application details payload.");
+    }
+    response.json(await updateApplicationDetails(request.params.applicationId, body.data));
+  } catch (error) {
+    next(error);
+  }
+});
+
 apiRouter.patch("/applications/:applicationId/archive", async (request, response, next) => {
   try {
     response.json(await archiveApplication(request.params.applicationId));
@@ -134,6 +148,36 @@ apiRouter.patch("/applications/:applicationId/archive", async (request, response
 apiRouter.delete("/applications/:applicationId", async (request, response, next) => {
   try {
     await deleteApplication(request.params.applicationId);
+    response.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/resume-runs", async (_request, response, next) => {
+  try {
+    response.json(await listResumeRuns());
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post("/resume-runs", async (request, response, next) => {
+  try {
+    const body = createResumeRunBodySchema.safeParse(request.body);
+    if (!body.success) {
+      throw new HttpError(400, "Invalid resume run payload.");
+    }
+
+    response.status(201).json(await createResumeRun(body.data));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.delete("/resume-runs/:resumeRunId", async (request, response, next) => {
+  try {
+    await deleteResumeRun(request.params.resumeRunId);
     response.status(204).send();
   } catch (error) {
     next(error);
@@ -165,6 +209,18 @@ const optionalHttpUrlSchema = z.preprocess((value) => {
   }
 }, z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://")).optional().nullable());
 
+const requiredHttpUrlSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return normalizeExternalApplicationTrackingUrl(value);
+  } catch {
+    return value.trim();
+  }
+}, z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://")));
+
 const createApplicationFromPostingBodySchema = z.object({
   jobPostingId: z.string().min(1),
   externalApplicationTrackingUrl: optionalHttpUrlSchema
@@ -182,8 +238,40 @@ const updateApplicationStatusBodySchema = z.object({
   status: z.enum(["APPLIED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"])
 });
 
+const applicationLinkSchema = z.object({
+  label: z.string().trim().optional().nullable(),
+  url: requiredHttpUrlSchema
+});
+
+const applicationInterviewDateSchema = z.object({
+  label: z.string().trim().optional().nullable(),
+  date: z.string().datetime({ offset: true })
+});
+
+const updateApplicationDetailsBodySchema = z.object({
+  notes: z.string().optional().nullable(),
+  interviewDates: z.array(applicationInterviewDateSchema).optional(),
+  links: z.array(applicationLinkSchema).optional()
+});
+
 const applicationActivityQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(9999).optional()
+});
+
+const resumeMetricSchema = z.object({
+  label: z.string().trim().min(1),
+  value: z.number().int().min(0).max(100)
+});
+
+const createResumeRunBodySchema = z.object({
+  id: z.string().trim().min(1).optional(),
+  sourceName: z.string().trim().min(1),
+  parsedText: z.string().trim().min(1),
+  grade: z.number().int().min(0).max(100).optional().nullable(),
+  tier: z.enum(["S", "A", "B", "C"]).optional().nullable(),
+  verdict: z.string().trim().optional().nullable(),
+  metrics: z.array(resumeMetricSchema).optional(),
+  createdAt: z.string().datetime({ offset: true }).optional()
 });
 
 apiRouter.use((error: unknown, _request: Request, _response: Response, next: NextFunction) => {

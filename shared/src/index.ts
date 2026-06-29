@@ -6,6 +6,7 @@ export type HealthResponse = {
 
 export type ApplicationStatus = "APPLIED" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
 export type ApplicationEventType = "CREATED" | "STATUS_CHANGED";
+export type ResumeTier = "S" | "A" | "B" | "C";
 
 export type SourceConfigDto = {
   id: string;
@@ -58,6 +59,9 @@ export type ApplicationDto = {
   role: string;
   jobPostingUrl: string | null;
   externalApplicationTrackingUrl: string | null;
+  notes: string | null;
+  interviewDates: ApplicationInterviewDateDto[];
+  links: ApplicationLinkDto[];
   status: ApplicationStatus;
   archivedAt: string | null;
   createdAt: string;
@@ -77,6 +81,32 @@ export type ApplicationEventDto = {
 export type ApplicationActivityDayDto = {
   date: string;
   count: number;
+};
+
+export type ApplicationLinkDto = {
+  label: string | null;
+  url: string;
+};
+
+export type ApplicationInterviewDateDto = {
+  label: string | null;
+  date: string;
+};
+
+export type ResumeGraderMetricDto = {
+  label: string;
+  value: number;
+};
+
+export type ResumeRunDto = {
+  id: string;
+  sourceName: string;
+  parsedText: string;
+  grade: number | null;
+  tier: ResumeTier | null;
+  verdict: string | null;
+  metrics: ResumeGraderMetricDto[];
+  createdAt: string;
 };
 
 export type OfficeImageDto = {
@@ -110,4 +140,21 @@ export type CreateManualApplicationRequest = {
 
 export type UpdateApplicationStatusRequest = {
   status: ApplicationStatus;
+};
+
+export type UpdateApplicationDetailsRequest = {
+  notes?: string | null;
+  interviewDates?: ApplicationInterviewDateDto[];
+  links?: ApplicationLinkDto[];
+};
+
+export type CreateResumeRunRequest = {
+  id?: string;
+  sourceName: string;
+  parsedText: string;
+  grade?: number | null;
+  tier?: ResumeTier | null;
+  verdict?: string | null;
+  metrics?: ResumeGraderMetricDto[];
+  createdAt?: string;
 };

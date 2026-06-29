@@ -1,0 +1,111 @@
+@media (max-width: 65.98rem) {
+  .dashboard-heading,
+  .section-header,
+  .posting-title-line {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .page-header-breadcrumb-row,
+  .page-header-content {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-header-metric {
+    justify-items: start;
+  }
+
+  .dashboard-actions,
+  .posting-tags {
+    justify-content: flex-start;
+  }
+
+  .posting-card {
+    grid-template-columns: 1fr;
+  }
+
+  .posting-actions {
+    flex-wrap: wrap;
+  }
+
+  .tracking-results-panel {
+    overflow-x: auto;
+  }
+
+  .stats-top-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tracker-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .resume-grader-latest {
+    grid-template-columns: 1fr;
+  }
+
+  .resume-run-row__select {
+    grid-template-columns: 1fr;
+  }
+
+  .application-interview-row {
+    grid-template-columns: 1fr;
+  }
+
+  .application-link-row,
+  .application-link-row--system {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-top-row .stats-strip {
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  }
+
+  .tracking-results-chart {
+    min-inline-size: 42rem;
+  }
+}
+
+@media (min-width: 66rem) {
+  .dashboard-grid--postings {
+    align-items: start;
+  }
+
+  .feed-shell--scroll {
+    display: flex;
+    max-block-size: calc(100vh - 15.5rem);
+    max-block-size: calc(100dvh - 15.5rem);
+    flex-direction: column;
+  }
+
+  .feed-shell--scroll .posting-list {
+    min-block-size: 0;
+    overflow-y: auto;
+    padding-inline-end: 0.25rem;
+  }
+
+  .tracker-tile {
+    display: flex;
+    max-block-size: calc(100vh - 15.5rem);
+    max-block-size: calc(100dvh - 15.5rem);
+    min-block-size: 0;
+    flex-direction: column;
+  }
+
+  .tracker-tile > .section-header {
+    flex: none;
+  }
+
+  .tracker-tile .kanban-board {
+    flex: 1 1 auto;
+  }
+
+  .application-details-tile {
+    position: sticky;
+    inset-block-start: 1rem;
+    max-block-size: calc(100vh - 15.5rem);
+    max-block-size: calc(100dvh - 15.5rem);
+    overflow-y: auto;
+  }
+}
