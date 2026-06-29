@@ -1,8 +1,4 @@
 .tracker-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.35fr);
-  gap: 0.75rem;
-  align-items: start;
   min-block-size: 0;
 }
 
@@ -105,26 +101,14 @@
   background: var(--application-status-color);
 }
 
-.application-details-tile {
+.application-details-modal .cds--modal-container {
+  inline-size: min(96vw, 92rem);
+  max-inline-size: min(96vw, 92rem);
+}
+
+.application-details-panel {
   display: grid;
   gap: 0.75rem;
-}
-
-.application-details-empty {
-  min-height: 8rem;
-  padding-block-start: 1rem;
-}
-
-.application-details-empty p {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.42857;
-}
-
-.application-details-empty span {
-  color: var(--app-text-muted);
-  font-size: 0.875rem;
-  line-height: 1.28572;
 }
 
 .application-details-updated {
@@ -135,9 +119,63 @@
   line-height: 1.28572;
 }
 
+.application-details-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.application-status-control--details {
+  min-inline-size: 12rem;
+}
+
 .application-details-form {
   display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(22rem, 0.55fr);
   gap: 0.75rem;
+  block-size: min(68vh, 42rem);
+  min-block-size: 24rem;
+}
+
+.application-notes-panel,
+.application-details-side-panel {
+  min-block-size: 0;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-alt);
+}
+
+.application-notes-panel {
+  display: grid;
+}
+
+.application-notes-panel .cds--form-item,
+.application-notes-panel .cds--text-area__wrapper {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-block-size: 0;
+}
+
+.application-notes-panel .cds--form-item,
+.application-notes-panel .cds--text-area,
+.application-notes-panel .cds--text-area__wrapper {
+  block-size: 100%;
+}
+
+.application-notes-panel .cds--label {
+  padding: 0.75rem 0.75rem 0;
+}
+
+.application-notes-panel .cds--text-area {
+  min-block-size: 0;
+  resize: none;
+}
+
+.application-details-side-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 0.75rem;
 }
 
 .application-interview-editor {

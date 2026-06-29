@@ -4,6 +4,7 @@ import {
   DatePicker,
   DatePickerInput,
   Loading,
+  Modal,
   OverflowMenu,
   OverflowMenuItem,
   Select,
@@ -138,11 +139,13 @@ function ApplicationCard({
 function ApplicationDetailsPanel({
   application,
   isSaving,
-  onSave
+  onSave,
+  onStatusChange
 }: {
-  application: ApplicationDto | null;
+  application: ApplicationDto;
   isSaving: boolean;
   onSave: (application: ApplicationDto, details: UpdateApplicationDetailsRequest) => Promise<void>;
+  onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
   const [notes, setNotes] = useState("");
   const [interviewDates, setInterviewDates] = useState<InterviewDateInput[]>([]);
@@ -154,24 +157,9 @@ function ApplicationDetailsPanel({
     setNotes(application?.notes ?? "");
     setInterviewDates(application?.interviewDates.map(createInterviewDateInputFromDto) ?? []);
     setLinks(application?.links.map(createApplicationLinkInputFromDto) ?? []);
-  }, [application]);
-
-  if (!application) {
-    return (
-      <Tile className="application-details-tile">
-        <div className="application-details-empty">
-          <p>No application selected.</p>
-          <span>Select an application to inspect notes, interviews, links, and metadata.</span>
-        </div>
-      </Tile>
-    );
-  }
+  }, [application.id]);
 
   async function handleSave() {
-    if (!application) {
-      return;
-    }
-
     try {
       setDetailsError(null);
       await onSave(application, {
@@ -188,239 +176,263 @@ function ApplicationDetailsPanel({
   const systemLinks = getSystemApplicationLinks(application);
 
   return (
-    <Tile className="application-details-tile">
+    <div className="application-details-panel">
       <div className="section-header">
         <div>
           <h2>{application.company}</h2>
           <p>{application.role}</p>
           <span className="application-details-updated">Updated {formatDate(application.updatedAt)}</span>
         </div>
-        <Button kind="primary" size="sm" renderIcon={Save} disabled={isSaving} onClick={() => void handleSave()}>
-          Save
-        </Button>
+        <div className="application-details-actions">
+          <div
+            className="application-status-control application-status-control--details"
+            style={{ "--application-status-color": getApplicationStatusColor(application.status) } as CSSProperties}
+          >
+            <span className="application-status-indicator" aria-hidden="true" />
+            <Select
+              hideLabel
+              id={`application-details-status-${application.id}`}
+              labelText={`Status for ${application.company} ${application.role}`}
+              size="sm"
+              value={application.status}
+              onChange={(event) => void onStatusChange(application, event.target.value as ApplicationStatus)}
+            >
+              {applicationStatuses.map((option) => (
+                <SelectItem key={option.status} text={option.label} value={option.status} />
+              ))}
+            </Select>
+          </div>
+          <Button kind="primary" size="sm" renderIcon={Save} disabled={isSaving} onClick={() => void handleSave()}>
+            Save
+          </Button>
+        </div>
       </div>
 
       <div className="application-details-form">
-        <TextArea
-          id={`application-notes-${application.id}`}
-          labelText="Notes"
-          placeholder="Notes about recruiter calls, prep, decisions, or follow-up."
-          rows={6}
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-        />
-        <div
-          className={`application-interview-editor${
-            canEditInterviewDates ? "" : " application-interview-editor--disabled"
-          }`}
-        >
-          <div className="application-interview-editor__header">
-            <h3>Interview dates</h3>
-            <Button
-              className="application-editor-add-button"
-              disabled={!canEditInterviewDates}
-              hasIconOnly
-              iconDescription="Add interview date"
-              kind="ghost"
-              renderIcon={Add}
-              size="sm"
-              tooltipPosition="left"
-              onClick={() => setInterviewDates((currentDates) => [...currentDates, createNewInterviewDateInput()])}
-            />
-          </div>
-          {interviewDates.length > 0 ? (
-            <div className="application-interview-list">
-              {interviewDates.map((interviewDate, interviewDateIndex) => (
-                <div className="application-interview-row" key={interviewDate.id}>
-                  <TextInput
-                    disabled={!canEditInterviewDates}
-                    hideLabel
-                    id={`application-interview-label-${application.id}-${interviewDate.id}`}
-                    labelText={`Interview ${interviewDateIndex + 1} label`}
-                    placeholder={`Interview ${interviewDateIndex + 1}`}
-                    size="sm"
-                    value={interviewDate.label}
-                    onChange={(event) =>
-                      setInterviewDates((currentDates) =>
-                        currentDates.map((currentDate) =>
-                          currentDate.id === interviewDate.id ? { ...currentDate, label: event.target.value } : currentDate
-                        )
-                      )
-                    }
-                  />
-                  <DatePicker
-                    dateFormat="M j"
-                    datePickerType="single"
-                    value={parseDatePickerValue(interviewDate.date)}
-                    onChange={(selectedDates: Date[]) => {
-                      if (!canEditInterviewDates) {
-                        return;
-                      }
-
-                      const selectedDate = selectedDates[0];
-                      if (!selectedDate) {
-                        return;
-                      }
-
-                      setInterviewDates((currentDates) =>
-                        currentDates.map((currentDate) =>
-                          currentDate.id === interviewDate.id
-                            ? { ...currentDate, date: formatDateInputValue(selectedDate) }
-                            : currentDate
-                        )
-                      );
-                    }}
-                  >
-                    <DatePickerInput
-                      id={`application-interview-date-${application.id}-${interviewDate.id}`}
+        <div className="application-notes-panel">
+          <TextArea
+            id={`application-notes-${application.id}`}
+            labelText="Notes"
+            placeholder="Notes about recruiter calls, prep, decisions, or follow-up."
+            rows={24}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
+        </div>
+        <div className="application-details-side-panel">
+          <div
+            className={`application-interview-editor${
+              canEditInterviewDates ? "" : " application-interview-editor--disabled"
+            }`}
+          >
+            <div className="application-interview-editor__header">
+              <h3>Interview dates</h3>
+              <Button
+                className="application-editor-add-button"
+                disabled={!canEditInterviewDates}
+                hasIconOnly
+                iconDescription="Add interview date"
+                kind="ghost"
+                renderIcon={Add}
+                size="sm"
+                tooltipPosition="left"
+                onClick={() => setInterviewDates((currentDates) => [...currentDates, createNewInterviewDateInput()])}
+              />
+            </div>
+            {interviewDates.length > 0 ? (
+              <div className="application-interview-list">
+                {interviewDates.map((interviewDate, interviewDateIndex) => (
+                  <div className="application-interview-row" key={interviewDate.id}>
+                    <TextInput
                       disabled={!canEditInterviewDates}
                       hideLabel
-                      labelText={`Interview ${interviewDateIndex + 1} date`}
-                      placeholder="Jun 26"
+                      id={`application-interview-label-${application.id}-${interviewDate.id}`}
+                      labelText={`Interview ${interviewDateIndex + 1} label`}
+                      placeholder={`Interview ${interviewDateIndex + 1}`}
                       size="sm"
-                    />
-                  </DatePicker>
-                  <TimePicker
-                    id={`application-interview-time-${application.id}-${interviewDate.id}`}
-                    labelText={`Interview ${interviewDateIndex + 1} time`}
-                    size="sm"
-                    type="time"
-                    value={interviewDate.time}
-                    disabled={!canEditInterviewDates}
-                    hideLabel
-                    onChange={(event) =>
-                      setInterviewDates((currentDates) =>
-                        currentDates.map((currentDate) =>
-                          currentDate.id === interviewDate.id ? { ...currentDate, time: event.target.value } : currentDate
-                        )
-                      )
-                    }
-                  />
-                  <Button
-                    disabled={!canEditInterviewDates}
-                    hasIconOnly
-                    iconDescription={`Remove interview ${interviewDateIndex + 1}`}
-                    kind="ghost"
-                    renderIcon={TrashCan}
-                    size="sm"
-                    tooltipPosition="left"
-                    onClick={() =>
-                      setInterviewDates((currentDates) => currentDates.filter((currentDate) => currentDate.id !== interviewDate.id))
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="application-interview-empty">No interview dates.</p>
-          )}
-        </div>
-        <div className="application-link-editor">
-          <div className="application-link-editor__header">
-            <h3>Links</h3>
-            <Button
-              className="application-editor-add-button"
-              hasIconOnly
-              iconDescription="Add link"
-              kind="ghost"
-              renderIcon={Add}
-              size="sm"
-              tooltipPosition="left"
-              onClick={() => setLinks((currentLinks) => [...currentLinks, createNewApplicationLinkInput()])}
-            />
-          </div>
-
-          {systemLinks.length > 0 || links.length > 0 ? (
-            <div className="application-link-list">
-              {systemLinks.map((link) => (
-                <div className="application-link-row application-link-row--system" key={link.id}>
-                  <span className="application-link-row__label">{link.label}</span>
-                  <a className="application-link-row__url" href={link.url} target="_blank" rel="noreferrer">
-                    {link.url}
-                  </a>
-                  <a
-                    aria-label={`Open ${link.label}`}
-                    className="application-link-row__launch"
-                    href={link.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Launch size={16} />
-                  </a>
-                </div>
-              ))}
-
-              {links.map((link, linkIndex) => {
-                const clickableUrl = getClickableUrl(link.url);
-
-                return (
-                  <div className="application-link-row" key={link.id}>
-                    <TextInput
-                      hideLabel
-                      id={`application-link-label-${application.id}-${link.id}`}
-                      labelText={`Link ${linkIndex + 1} label`}
-                      placeholder="Label"
-                      size="sm"
-                      value={link.label}
+                      value={interviewDate.label}
                       onChange={(event) =>
-                        setLinks((currentLinks) =>
-                          currentLinks.map((currentLink) =>
-                            currentLink.id === link.id ? { ...currentLink, label: event.target.value } : currentLink
+                        setInterviewDates((currentDates) =>
+                          currentDates.map((currentDate) =>
+                            currentDate.id === interviewDate.id ? { ...currentDate, label: event.target.value } : currentDate
                           )
                         )
                       }
                     />
-                    <TextInput
-                      hideLabel
-                      id={`application-link-url-${application.id}-${link.id}`}
-                      labelText={`Link ${linkIndex + 1} URL`}
-                      placeholder="https://example.com"
+                    <DatePicker
+                      dateFormat="M j"
+                      datePickerType="single"
+                      value={parseDatePickerValue(interviewDate.date)}
+                      onChange={(selectedDates: Date[]) => {
+                        if (!canEditInterviewDates) {
+                          return;
+                        }
+
+                        const selectedDate = selectedDates[0];
+                        if (!selectedDate) {
+                          return;
+                        }
+
+                        setInterviewDates((currentDates) =>
+                          currentDates.map((currentDate) =>
+                            currentDate.id === interviewDate.id
+                              ? { ...currentDate, date: formatDateInputValue(selectedDate) }
+                              : currentDate
+                          )
+                        );
+                      }}
+                    >
+                      <DatePickerInput
+                        id={`application-interview-date-${application.id}-${interviewDate.id}`}
+                        disabled={!canEditInterviewDates}
+                        hideLabel
+                        labelText={`Interview ${interviewDateIndex + 1} date`}
+                        placeholder="Jun 26"
+                        size="sm"
+                      />
+                    </DatePicker>
+                    <TimePicker
+                      id={`application-interview-time-${application.id}-${interviewDate.id}`}
+                      labelText={`Interview ${interviewDateIndex + 1} time`}
                       size="sm"
-                      value={link.url}
+                      type="time"
+                      value={interviewDate.time}
+                      disabled={!canEditInterviewDates}
+                      hideLabel
                       onChange={(event) =>
-                        setLinks((currentLinks) =>
-                          currentLinks.map((currentLink) =>
-                            currentLink.id === link.id ? { ...currentLink, url: event.target.value } : currentLink
+                        setInterviewDates((currentDates) =>
+                          currentDates.map((currentDate) =>
+                            currentDate.id === interviewDate.id ? { ...currentDate, time: event.target.value } : currentDate
                           )
                         )
                       }
                     />
-                    {clickableUrl ? (
-                      <a
-                        aria-label={`Open link ${linkIndex + 1}`}
-                        className="application-link-row__launch"
-                        href={clickableUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <Launch size={16} />
-                      </a>
-                    ) : (
-                      <span aria-hidden="true" className="application-link-row__launch application-link-row__launch--disabled">
-                        <Launch size={16} />
-                      </span>
-                    )}
                     <Button
+                      disabled={!canEditInterviewDates}
                       hasIconOnly
-                      iconDescription={`Remove link ${linkIndex + 1}`}
+                      iconDescription={`Remove interview ${interviewDateIndex + 1}`}
                       kind="ghost"
                       renderIcon={TrashCan}
                       size="sm"
                       tooltipPosition="left"
-                      onClick={() => setLinks((currentLinks) => currentLinks.filter((currentLink) => currentLink.id !== link.id))}
+                      onClick={() =>
+                        setInterviewDates((currentDates) => currentDates.filter((currentDate) => currentDate.id !== interviewDate.id))
+                      }
                     />
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            ) : (
+              <p className="application-interview-empty">No interview dates.</p>
+            )}
+          </div>
+          <div className="application-link-editor">
+            <div className="application-link-editor__header">
+              <h3>Links</h3>
+              <Button
+                className="application-editor-add-button"
+                hasIconOnly
+                iconDescription="Add link"
+                kind="ghost"
+                renderIcon={Add}
+                size="sm"
+                tooltipPosition="left"
+                onClick={() => setLinks((currentLinks) => [...currentLinks, createNewApplicationLinkInput()])}
+              />
             </div>
-          ) : (
-            <p className="application-link-empty">No links.</p>
-          )}
+
+            {systemLinks.length > 0 || links.length > 0 ? (
+              <div className="application-link-list">
+                {systemLinks.map((link) => (
+                  <div className="application-link-row application-link-row--system" key={link.id}>
+                    <span className="application-link-row__label">{link.label}</span>
+                    <a className="application-link-row__url" href={link.url} target="_blank" rel="noreferrer">
+                      {link.url}
+                    </a>
+                    <a
+                      aria-label={`Open ${link.label}`}
+                      className="application-link-row__launch"
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Launch size={16} />
+                    </a>
+                  </div>
+                ))}
+
+                {links.map((link, linkIndex) => {
+                  const clickableUrl = getClickableUrl(link.url);
+
+                  return (
+                    <div className="application-link-row" key={link.id}>
+                      <TextInput
+                        hideLabel
+                        id={`application-link-label-${application.id}-${link.id}`}
+                        labelText={`Link ${linkIndex + 1} label`}
+                        placeholder="Label"
+                        size="sm"
+                        value={link.label}
+                        onChange={(event) =>
+                          setLinks((currentLinks) =>
+                            currentLinks.map((currentLink) =>
+                              currentLink.id === link.id ? { ...currentLink, label: event.target.value } : currentLink
+                            )
+                          )
+                        }
+                      />
+                      <TextInput
+                        hideLabel
+                        id={`application-link-url-${application.id}-${link.id}`}
+                        labelText={`Link ${linkIndex + 1} URL`}
+                        placeholder="https://example.com"
+                        size="sm"
+                        value={link.url}
+                        onChange={(event) =>
+                          setLinks((currentLinks) =>
+                            currentLinks.map((currentLink) =>
+                              currentLink.id === link.id ? { ...currentLink, url: event.target.value } : currentLink
+                            )
+                          )
+                        }
+                      />
+                      {clickableUrl ? (
+                        <a
+                          aria-label={`Open link ${linkIndex + 1}`}
+                          className="application-link-row__launch"
+                          href={clickableUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Launch size={16} />
+                        </a>
+                      ) : (
+                        <span aria-hidden="true" className="application-link-row__launch application-link-row__launch--disabled">
+                          <Launch size={16} />
+                        </span>
+                      )}
+                      <Button
+                        hasIconOnly
+                        iconDescription={`Remove link ${linkIndex + 1}`}
+                        kind="ghost"
+                        renderIcon={TrashCan}
+                        size="sm"
+                        tooltipPosition="left"
+                        onClick={() => setLinks((currentLinks) => currentLinks.filter((currentLink) => currentLink.id !== link.id))}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="application-link-empty">No links.</p>
+            )}
+          </div>
+          {detailsError ? <p className="application-details-error">{detailsError}</p> : null}
         </div>
-        {detailsError ? <p className="application-details-error">{detailsError}</p> : null}
       </div>
 
-    </Tile>
+    </div>
   );
 }
 
@@ -447,6 +459,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
   selectedApplicationId: string | null;
 }) {
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const applicationsByStatus = useMemo(() => {
     const groupedApplications = new Map<ApplicationStatus, ApplicationDto[]>();
     for (const option of applicationStatuses) {
@@ -463,6 +476,17 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
     () => applications.find((application) => application.id === selectedApplicationId) ?? null,
     [applications, selectedApplicationId]
   );
+
+  useEffect(() => {
+    if (!selectedApplication) {
+      setIsDetailsModalOpen(false);
+    }
+  }, [selectedApplication]);
+
+  function handleSelectApplication(application: ApplicationDto) {
+    onSelect(application);
+    setIsDetailsModalOpen(true);
+  }
 
   return (
     <div className="tracker-layout">
@@ -498,7 +522,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
                       key={application.id}
                       onArchive={onArchive}
                       onDelete={onDelete}
-                      onSelect={onSelect}
+                      onSelect={handleSelectApplication}
                       onStatusChange={onStatusChange}
                     />
                   ))}
@@ -510,7 +534,24 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
           })}
         </div>
       </Tile>
-      <ApplicationDetailsPanel application={selectedApplication} isSaving={isSavingDetails} onSave={onDetailsSave} />
+      <Modal
+        className="application-details-modal"
+        modalHeading="Application details"
+        modalAriaLabel={selectedApplication ? `${selectedApplication.company} ${selectedApplication.role}` : "Application details"}
+        open={Boolean(selectedApplication && isDetailsModalOpen)}
+        passiveModal
+        size="lg"
+        onRequestClose={() => setIsDetailsModalOpen(false)}
+      >
+        {selectedApplication ? (
+          <ApplicationDetailsPanel
+            application={selectedApplication}
+            isSaving={isSavingDetails}
+            onSave={onDetailsSave}
+            onStatusChange={onStatusChange}
+          />
+        ) : null}
+      </Modal>
     </div>
   );
 });

@@ -45,6 +45,19 @@
     grid-template-columns: 1fr;
   }
 
+  .application-details-form {
+    grid-template-columns: minmax(0, 1fr);
+    block-size: auto;
+  }
+
+  .application-notes-panel {
+    min-block-size: 20rem;
+  }
+
+  .application-details-side-panel {
+    min-block-size: 22rem;
+  }
+
   .resume-grader-latest {
     grid-template-columns: 1fr;
   }
@@ -105,11 +118,4 @@
     flex: 1 1 auto;
   }
 
-  .application-details-tile {
-    position: sticky;
-    inset-block-start: 1rem;
-    max-block-size: calc(100vh - 15.5rem);
-    max-block-size: calc(100dvh - 15.5rem);
-    overflow-y: auto;
-  }
 }
