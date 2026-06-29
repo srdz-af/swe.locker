@@ -45,6 +45,15 @@
     grid-template-columns: 1fr;
   }
 
+  .kanban-board {
+    grid-template-columns: repeat(5, minmax(12rem, 1fr));
+    overflow-x: auto;
+  }
+
+  .kanban-column {
+    min-inline-size: 12rem;
+  }
+
   .application-details-form {
     grid-template-columns: minmax(0, 1fr);
     block-size: auto;

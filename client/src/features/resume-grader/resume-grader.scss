@@ -404,6 +404,16 @@
   min-block-size: 0;
 }
 
+.resume-comments-tabs .cds--tab--overflow-nav-button {
+  display: none;
+}
+
+.resume-comments-tabs .cds--tabs__nav-link:active,
+.resume-comments-tabs .cds--tabs__nav-link:focus,
+.resume-comments-tabs .cds--tabs__nav-link:focus-visible {
+  outline: none;
+}
+
 .resume-comments-tab-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

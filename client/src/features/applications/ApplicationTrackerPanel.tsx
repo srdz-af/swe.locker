@@ -1,4 +1,5 @@
 import { memo, type CSSProperties, type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   Button,
   DatePicker,
@@ -9,10 +10,13 @@ import {
   OverflowMenuItem,
   Select,
   SelectItem,
+  Tab,
+  TabList,
   Tag,
   TextArea,
   TextInput,
   Tile,
+  Tabs,
   TimePicker
 } from "@carbon/react";
 import { Add, Launch, Save, TrashCan } from "@carbon/icons-react";
@@ -148,12 +152,14 @@ function ApplicationDetailsPanel({
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
   const [notes, setNotes] = useState("");
+  const [notesTabIndex, setNotesTabIndex] = useState(0);
   const [interviewDates, setInterviewDates] = useState<InterviewDateInput[]>([]);
   const [links, setLinks] = useState<ApplicationLinkInput[]>([]);
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   useEffect(() => {
     setDetailsError(null);
+    setNotesTabIndex(0);
     setNotes(application?.notes ?? "");
     setInterviewDates(application?.interviewDates.map(createInterviewDateInputFromDto) ?? []);
     setLinks(application?.links.map(createApplicationLinkInputFromDto) ?? []);
@@ -210,14 +216,33 @@ function ApplicationDetailsPanel({
 
       <div className="application-details-form">
         <div className="application-notes-panel">
-          <TextArea
-            id={`application-notes-${application.id}`}
-            labelText="Notes"
-            placeholder="Notes about recruiter calls, prep, decisions, or follow-up."
-            rows={24}
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-          />
+          <div className="application-notes-tabs">
+            <Tabs selectedIndex={notesTabIndex} onChange={({ selectedIndex }) => setNotesTabIndex(selectedIndex)}>
+              <TabList aria-label="Application notes views" contained size="sm">
+                <Tab>Preview</Tab>
+                <Tab>Raw text</Tab>
+              </TabList>
+            </Tabs>
+            {notesTabIndex === 0 ? (
+              <div className="application-notes-preview" aria-label="Notes preview">
+                {notes.trim() ? (
+                  <ReactMarkdown>{notes}</ReactMarkdown>
+                ) : (
+                  <p className="application-notes-preview-empty">No notes yet.</p>
+                )}
+              </div>
+            ) : (
+              <TextArea
+                hideLabel
+                id={`application-notes-${application.id}`}
+                labelText="Notes"
+                placeholder="Notes about recruiter calls, prep, decisions, or follow-up. Supports markdown"
+                rows={24}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            )}
+          </div>
         </div>
         <div className="application-details-side-panel">
           <div
