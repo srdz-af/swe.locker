@@ -3,7 +3,7 @@ import { prisma } from "../db/prisma.js";
 import { HttpError } from "../errors.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ResumeTier } from "../generated/prisma/client.js";
-import { gradeResume } from "../grading/resumeGrader.js";
+import { calculateResumeGrade, gradeResume } from "../grading/resumeGrader.js";
 import type { ResumeGradeCommentGroup, ResumeGradeMetric, ResumeRank } from "../grading/resumeGrader.js";
 import { toResumeRunDto } from "./mappers.js";
 
@@ -38,10 +38,15 @@ export async function createResumeRun(input: {
     sourceName,
     parsedText
   });
-  const grade = normalizeGraderGrade(gradingResult.grade);
   const tier = normalizeGraderRank(gradingResult.rank);
   const metrics = normalizeGraderMetrics(gradingResult.metrics);
   const comments = normalizeGraderCommentGroups(gradingResult.comments ?? [], parsedText);
+  const grade = calculateResumeGrade(metrics);
+
+  if (grade === null) {
+    throw new Error("Resume grader returned invalid metrics.");
+  }
+
   const data = {
     ownerKey: LOCAL_OWNER_KEY,
     sourceName,
@@ -89,14 +94,6 @@ export async function deleteResumeRun(resumeRunId: string) {
       id: resumeRun.id
     }
   });
-}
-
-function normalizeGraderGrade(value: number) {
-  if (!Number.isInteger(value) || value < 0 || value > 100) {
-    throw new Error("Resume grader returned an invalid grade.");
-  }
-
-  return value;
 }
 
 function normalizeGraderRank(value: ResumeRank) {

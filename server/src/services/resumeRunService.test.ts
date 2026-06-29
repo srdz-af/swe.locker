@@ -12,6 +12,9 @@ const prismaMock = vi.hoisted(() => ({
 }));
 
 const resumeGraderMock = vi.hoisted(() => ({
+  calculateResumeGrade: vi.fn((metrics: Array<{ value: number }>) =>
+    metrics.length === 0 ? null : Math.round(metrics.reduce((total, metric) => total + metric.value, 0) / metrics.length)
+  ),
   gradeResume: vi.fn()
 }));
 
@@ -26,7 +29,7 @@ const baseResumeRun = {
   ownerKey: "local",
   sourceName: "alex-rivera-resume.pdf",
   parsedText: "Alex Rivera\nSoftware Engineer",
-  grade: 86,
+  grade: 12,
   tier: "B",
   verdict: "Solid revision.",
   metrics: JSON.stringify([
@@ -48,7 +51,6 @@ describe("resumeRunService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resumeGraderMock.gradeResume.mockReturnValue({
-      grade: 86,
       rank: "B",
       verdict: "Temporary random grading result.",
       metrics: [
@@ -98,7 +100,7 @@ describe("resumeRunService", () => {
     });
   });
 
-  it("creates a resume run from backend grader output", async () => {
+  it("creates a resume run from backend grader metrics", async () => {
     prismaMock.resumeRun.create.mockResolvedValue(baseResumeRun);
 
     await expect(

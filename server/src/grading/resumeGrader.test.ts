@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradeResume } from "./resumeGrader.js";
+import { calculateResumeGrade, gradeResume } from "./resumeGrader.js";
 
 describe("gradeResume", () => {
   it("returns a valid temporary grading result", () => {
@@ -8,9 +8,6 @@ describe("gradeResume", () => {
       parsedText: "Alex Rivera\nSoftware Engineer"
     });
 
-    expect(Number.isInteger(result.grade)).toBe(true);
-    expect(result.grade).toBeGreaterThanOrEqual(0);
-    expect(result.grade).toBeLessThanOrEqual(100);
     expect(["S", "A", "B", "C"]).toContain(result.rank);
     expect(result.verdict).toBeTruthy();
     expect(result.metrics.length).toBeGreaterThan(0);
@@ -38,5 +35,16 @@ describe("gradeResume", () => {
         expect(comment.end).toBeGreaterThan(comment.start);
       }
     }
+  });
+
+  it("calculates the grade as the rounded average of metric scores", () => {
+    expect(
+      calculateResumeGrade([
+        { label: "Structure", value: 90 },
+        { label: "Impact", value: 82 },
+        { label: "Evidence", value: 87 }
+      ])
+    ).toBe(86);
+    expect(calculateResumeGrade([])).toBeNull();
   });
 });

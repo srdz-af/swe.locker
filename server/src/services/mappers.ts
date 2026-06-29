@@ -1,4 +1,5 @@
 import type { Application, ApplicationEvent, FetchRun, FollowedCompany, JobPosting, ResumeRun, SourceConfig } from "../generated/prisma/client.js";
+import { calculateResumeGrade } from "../grading/resumeGrader.js";
 
 type ApplicationWithEvents = Application & {
   events?: ApplicationEvent[];
@@ -78,7 +79,7 @@ export function toResumeRunDto(run: ResumeRun) {
     id: run.id,
     sourceName: run.sourceName,
     parsedText: run.parsedText,
-    grade: run.grade,
+    grade: calculateResumeGrade(metrics),
     tier: run.tier,
     verdict: run.verdict,
     metrics,

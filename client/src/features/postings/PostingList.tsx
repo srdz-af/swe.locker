@@ -8,7 +8,7 @@ import {
   useState
 } from "react";
 import { Button, Tag } from "@carbon/react";
-import { Add, Launch, Star, StarFilled } from "@carbon/icons-react";
+import { Launch, Star, StarFilled } from "@carbon/icons-react";
 import type { JobPostingDto } from "../../../../shared/src/index";
 
 const postingListDesktopQuery = "(min-width: 66rem)";
@@ -83,9 +83,9 @@ const PostingCard = memo(function PostingCard({ isSelected, posting, onFollow, o
 
       <div className="posting-actions">
         <Button
+          className="posting-track-button"
           kind="secondary"
           size="sm"
-          renderIcon={Add}
           onClick={(event) => {
             event.stopPropagation();
             void onTrack(posting);

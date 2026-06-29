@@ -15,7 +15,7 @@ import type {
   ApplicationStatus,
   JobPostingDto
 } from "../../../../shared/src/index";
-import { applicationStatuses, getApplicationStatusColor } from "../../constants";
+import { applicationStatuses, getApplicationStatusColor, getResumeGradeColor } from "../../constants";
 import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatApplicationTooltipValue } from "../../utils/format";
 
@@ -580,6 +580,7 @@ const LatestResumeRadarTile = memo(function LatestResumeRadarTile({
 }) {
   const latestRun = runs[0] ?? null;
   const [canRenderRadar, setCanRenderRadar] = useState(false);
+  const latestRunGradeColor = useMemo(() => getResumeGradeColor(latestRun?.grade), [latestRun?.grade]);
   const latestRunRadarData = useMemo<ChartTabularData>(
     () =>
       latestRun?.metrics.map((metric) => ({
@@ -597,6 +598,11 @@ const LatestResumeRadarTile = memo(function LatestResumeRadarTile({
       data: {
         groupMapsTo: "group"
       },
+      color: {
+        scale: {
+          Latest: latestRunGradeColor
+        }
+      },
       height: "14rem",
       legend: {
         enabled: false
@@ -613,7 +619,7 @@ const LatestResumeRadarTile = memo(function LatestResumeRadarTile({
         enabled: false
       }
     }),
-    [themeMode]
+    [latestRunGradeColor, themeMode]
   );
   const radarChartKey = useMemo(
     () => `${themeMode}-${latestRun?.id ?? "none"}-${latestRunRadarData.map((item) => `${item.metric}:${item.value}`).join("|")}`,
@@ -776,13 +782,23 @@ const StatsOverviewTile = memo(function StatsOverviewTile({
         .filter((item) => item.value > 0),
     [applicationCountsByStatus]
   );
+  const applicationOutcomeColorScale = useMemo(
+    () =>
+      Object.fromEntries(
+        applicationOutcomeData
+          .map((item) => item.group)
+          .filter((group): group is string => typeof group === "string")
+          .map((group) => [group, applicationOutcomeColors[group] ?? getApplicationStatusColor("APPLIED")])
+      ),
+    [applicationOutcomeData]
+  );
   const applicationOutcomeOptions = useMemo<DonutChartOptions>(
     () => ({
       accessibility: {
         svgAriaLabel: "Application outcomes by status"
       },
       color: {
-        scale: applicationOutcomeColors
+        scale: applicationOutcomeColorScale
       },
       data: {
         groupMapsTo: "group"
@@ -817,7 +833,7 @@ const StatsOverviewTile = memo(function StatsOverviewTile({
         valueFormatter: (value) => formatApplicationTooltipValue(value)
       }
     }),
-    [applications.length, themeMode]
+    [applicationOutcomeColorScale, applications.length, themeMode]
   );
 
   return (

@@ -666,7 +666,7 @@ function App() {
 
                       <Column sm={4} md={8} lg={4} className="posting-side-column">
                         <div className="sidebar-stack">
-                          <VisualizationPanel posting={selectedPosting} />
+                          <VisualizationPanel posting={selectedPosting} themeMode={themeMode} />
                         </div>
                       </Column>
                     </Grid>

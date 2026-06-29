@@ -20,7 +20,6 @@ export type ResumeGradeCommentGroup = {
 };
 
 export type ResumeGradeResult = {
-  grade: number;
   rank: ResumeRank;
   verdict: string;
   metrics: ResumeGradeMetric[];
@@ -31,7 +30,6 @@ const resumeRanks: ResumeRank[] = ["S", "A", "B", "C"];
 const resumeMetricLabels = ["Structure", "Impact", "Evidence", "Specificity", "Relevance"];
 
 export function gradeResume(input: { sourceName: string; parsedText: string }): ResumeGradeResult {
-  const grade = randomScore();
   const rank = resumeRanks[randomInteger(0, resumeRanks.length - 1)];
   const verdict = "Temporary random grading result.";
   const metrics = resumeMetricLabels.map((label) => ({
@@ -40,7 +38,6 @@ export function gradeResume(input: { sourceName: string; parsedText: string }): 
   }));
 
   return {
-    grade,
     rank,
     verdict,
     metrics,
@@ -51,6 +48,15 @@ export function gradeResume(input: { sourceName: string; parsedText: string }): 
       verdict
     })
   };
+}
+
+export function calculateResumeGrade(metrics: ResumeGradeMetric[]) {
+  if (metrics.length === 0) {
+    return null;
+  }
+
+  const total = metrics.reduce((sum, metric) => sum + metric.value, 0);
+  return Math.round(total / metrics.length);
 }
 
 function randomScore() {

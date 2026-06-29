@@ -16,7 +16,6 @@ import {
 } from "../services/applicationService.js";
 import { followCompany, unfollowCompany } from "../services/followedCompanyService.js";
 import { toSourceConfigDto } from "../services/mappers.js";
-import { searchOfficeImages } from "../services/officeImageService.js";
 import { listPostings } from "../services/postingService.js";
 import { createResumeRun, deleteResumeRun, listResumeRuns } from "../services/resumeRunService.js";
 import { ensureSourceConfig } from "../services/sourceConfigService.js";
@@ -38,15 +37,6 @@ apiRouter.get("/postings", async (request, response, next) => {
     }
 
     response.json(await listPostings());
-  } catch (error) {
-    next(error);
-  }
-});
-
-apiRouter.get("/office-images", async (request, response, next) => {
-  try {
-    const query = officeImagesQuerySchema.parse(request.query);
-    response.json(await searchOfficeImages(query));
   } catch (error) {
     next(error);
   }
@@ -186,11 +176,6 @@ apiRouter.delete("/resume-runs/:resumeRunId", async (request, response, next) =>
 
 const followCompanyBodySchema = z.object({
   companyName: z.string().min(1)
-});
-
-const officeImagesQuerySchema = z.object({
-  company: z.string().trim().min(1),
-  location: z.string().trim().min(1).optional()
 });
 
 const optionalHttpUrlSchema = z.preprocess((value) => {

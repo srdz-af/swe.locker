@@ -62,8 +62,8 @@ The source defaults point at the current SimplifyJobs Summer 2026 internships RE
 branch. The backend refreshes the local snapshot on startup when empty and then on the configured
 interval.
 
-Posting details use a lightweight office image lookup with a search-link fallback; no image API key
-is required.
+Posting details use MapLibre with locally hosted style JSON under `public/map-styles`.
+Map tiles come from OpenFreeMap, and location lookup uses cached Nominatim requests.
 
 ## Current Scope
 

@@ -26,11 +26,11 @@ export function getResumeGradeColor(grade: number | null | undefined) {
 }
 
 export const applicationStatusColors: Record<ApplicationStatus, string> = {
-  APPLIED: "#009d9a",
-  INTERVIEW: "#8a3ffc",
+  APPLIED: "#6f6f6f",
+  INTERVIEW: "#0f62fe",
   OFFER: "#24a148",
-  HIRED: "#0f62fe",
-  REJECTED: "#d02670"
+  HIRED: "#009d9a",
+  REJECTED: "#da1e28"
 };
 
 export const applicationStatuses: Array<{ status: ApplicationStatus; label: string; color: string }> = [

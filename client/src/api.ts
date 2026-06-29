@@ -7,7 +7,6 @@ import type {
   CreateManualApplicationRequest,
   FollowedCompanyDto,
   JobPostingDto,
-  OfficeImageSearchDto,
   ResumeRunDto,
   SourceConfigDto,
   UpdateApplicationDetailsRequest,
@@ -24,18 +23,6 @@ export async function getSourceConfig() {
 
 export async function getPostings() {
   return request<JobPostingDto[]>("/postings");
-}
-
-export async function getOfficeImages(company: string, location?: string | null) {
-  const params = new URLSearchParams({
-    company
-  });
-
-  if (location) {
-    params.set("location", location);
-  }
-
-  return request<OfficeImageSearchDto>(`/office-images?${params}`);
 }
 
 export async function followCompany(companyName: string) {
