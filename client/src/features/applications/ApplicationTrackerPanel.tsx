@@ -18,6 +18,7 @@ import type {
   ApplicationInterviewDateDto,
   ApplicationLinkDto,
   ApplicationStatus,
+  ResumeRunDto,
   UpdateApplicationDetailsRequest
 } from "../../../../shared/src/index";
 import { TextModePanel, type TextMode } from "../../components/TextModePanel";
@@ -112,7 +113,8 @@ function ApplicationDetailsPanel({
   onArchive,
   onDelete,
   onSave,
-  onStatusChange
+  onStatusChange,
+  resumeRuns
 }: {
   application: ApplicationDto;
   isSaving: boolean;
@@ -120,11 +122,13 @@ function ApplicationDetailsPanel({
   onDelete: (application: ApplicationDto) => Promise<void>;
   onSave: (application: ApplicationDto, details: UpdateApplicationDetailsRequest) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
+  resumeRuns: ResumeRunDto[];
 }) {
   const [notes, setNotes] = useState("");
   const [notesMode, setNotesMode] = useState<TextMode>("preview");
   const [interviewDates, setInterviewDates] = useState<InterviewDateInput[]>([]);
   const [links, setLinks] = useState<ApplicationLinkInput[]>([]);
+  const [submittedResumeRunId, setSubmittedResumeRunId] = useState("");
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -133,6 +137,7 @@ function ApplicationDetailsPanel({
     setNotes(application?.notes ?? "");
     setInterviewDates(application?.interviewDates.map(createInterviewDateInputFromDto) ?? []);
     setLinks(application?.links.map(createApplicationLinkInputFromDto) ?? []);
+    setSubmittedResumeRunId(application.submittedResumeRunId ?? "");
   }, [application.id]);
 
   async function handleSave() {
@@ -141,7 +146,8 @@ function ApplicationDetailsPanel({
       await onSave(application, {
         notes,
         interviewDates: serializeInterviewDates(interviewDates),
-        links: serializeApplicationLinks(links)
+        links: serializeApplicationLinks(links),
+        submittedResumeRunId: submittedResumeRunId || null
       });
     } catch (error) {
       setDetailsError(error instanceof Error ? error.message : "Could not save application details.");
@@ -168,6 +174,8 @@ function ApplicationDetailsPanel({
 
   const canEditInterviewDates = application.status === "INTERVIEW";
   const systemLinks = getSystemApplicationLinks(application);
+  const submittedResumeRun = resumeRuns.find((run) => run.id === submittedResumeRunId) ?? null;
+  const hasMissingSubmittedResumeRun = Boolean(submittedResumeRunId && !submittedResumeRun);
 
   return (
     <div className="application-details-panel">
@@ -246,9 +254,32 @@ function ApplicationDetailsPanel({
             tabsAriaLabel="Application notes views"
             tabsClassName="application-notes-view-tabs"
             title="Notes"
+            toggleLabel="Edit"
           />
         </div>
         <div className="application-details-side-panel">
+          <div className="application-resume-editor">
+            <h3>Submitted resume</h3>
+            <Select
+              id={`application-resume-run-${application.id}`}
+              labelText="Associated resume"
+              size="sm"
+              value={submittedResumeRunId}
+              onChange={(event) => setSubmittedResumeRunId(event.target.value)}
+            >
+              <SelectItem text="No associated resume" value="" />
+              {hasMissingSubmittedResumeRun ? <SelectItem text="Missing resume run" value={submittedResumeRunId} /> : null}
+              {resumeRuns.map((run) => (
+                <SelectItem key={run.id} text={formatResumeRunOption(run)} value={run.id} />
+              ))}
+            </Select>
+            {submittedResumeRun ? (
+              <div className="application-resume-summary">
+                <span>{formatDate(submittedResumeRun.createdAt)}</span>
+                <strong>{formatResumeRunScore(submittedResumeRun)}</strong>
+              </div>
+            ) : null}
+          </div>
           <div
             className={`application-interview-editor${
               canEditInterviewDates ? "" : " application-interview-editor--disabled"
@@ -475,6 +506,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   onDetailsSave,
   onSelect,
   onStatusChange,
+  resumeRuns = [],
   selectedApplicationId
 }: {
   applications?: ApplicationDto[];
@@ -486,6 +518,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   onDetailsSave: (application: ApplicationDto, details: UpdateApplicationDetailsRequest) => Promise<void>;
   onSelect: (application: ApplicationDto) => void;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
+  resumeRuns?: ResumeRunDto[];
   selectedApplicationId: string | null;
 }) {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -578,6 +611,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
             onDelete={onDelete}
             onSave={onDetailsSave}
             onStatusChange={onStatusChange}
+            resumeRuns={resumeRuns}
           />
         ) : null}
       </Modal>
@@ -721,6 +755,15 @@ function getClickableUrl(value: string) {
   } catch {
     return null;
   }
+}
+
+function formatResumeRunOption(run: ResumeRunDto) {
+  return `${run.sourceName} - ${formatDate(run.createdAt)} - ${formatResumeRunScore(run)}`;
+}
+
+function formatResumeRunScore(run: ResumeRunDto) {
+  const gradeLabel = run.grade === null ? "Raw text" : `${run.grade}/100`;
+  return run.tier ? `${gradeLabel}, ${run.tier}` : gradeLabel;
 }
 
 function createClientId(prefix: string) {

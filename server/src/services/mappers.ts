@@ -51,6 +51,7 @@ export function toApplicationDto(application: ApplicationWithEvents) {
     notes: application.notes,
     interviewDates: parseApplicationInterviewDates(application.interviewDates),
     links: parseApplicationLinks(application.links),
+    submittedResumeRunId: application.submittedResumeRunId,
     status: application.status,
     archivedAt: application.archivedAt?.toISOString() ?? null,
     createdAt: application.createdAt.toISOString(),

@@ -262,6 +262,13 @@ function App() {
     try {
       await deleteResumeRun(run.id);
       setResumeRuns((currentRuns) => currentRuns.filter((currentRun) => currentRun.id !== run.id));
+      setApplications((currentApplications) =>
+        currentApplications.map((currentApplication) =>
+          currentApplication.submittedResumeRunId === run.id
+            ? { ...currentApplication, submittedResumeRunId: null }
+            : currentApplication
+        )
+      );
       setNotice(`${run.sourceName} deleted.`);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Could not delete resume run.");
@@ -682,11 +689,13 @@ function App() {
                       onDetailsSave={handleApplicationDetailsSave}
                       onSelect={handleSelectApplication}
                       onStatusChange={handleApplicationStatusChange}
+                      resumeRuns={resumeRuns}
                       selectedApplicationId={selectedApplicationId}
                     />
                   </TabPanel>
                   <TabPanel className="app-tab-panel">
                     <ResumeGraderPanel
+                      applications={applications}
                       isUploadPending={isResumeUploadPending}
                       onDeleteRun={handleResumeRunDelete}
                       onUpload={handleResumeUpload}

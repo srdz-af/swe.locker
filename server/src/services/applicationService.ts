@@ -188,6 +188,7 @@ export async function updateApplicationDetails(
     notes?: string | null;
     interviewDates?: Array<{ label?: string | null; date: string }>;
     links?: Array<{ label?: string | null; url: string }>;
+    submittedResumeRunId?: string | null;
   }
 ) {
   const application = await prisma.application.findFirst({
@@ -202,6 +203,8 @@ export async function updateApplicationDetails(
     throw new HttpError(404, "Tracked application not found.");
   }
 
+  const submittedResumeRunId = await normalizeSubmittedResumeRunId(input);
+
   const updatedApplication = await prisma.application.update({
     where: {
       id: application.id
@@ -209,7 +212,8 @@ export async function updateApplicationDetails(
     data: {
       ...(Object.hasOwn(input, "notes") ? { notes: input.notes?.trim() || null } : {}),
       ...(input.interviewDates ? { interviewDates: JSON.stringify(input.interviewDates.map(normalizeInterviewDate)) } : {}),
-      ...(input.links ? { links: JSON.stringify(input.links.map(normalizeApplicationLink)) } : {})
+      ...(input.links ? { links: JSON.stringify(input.links.map(normalizeApplicationLink)) } : {}),
+      ...(submittedResumeRunId !== undefined ? { submittedResumeRunId } : {})
     },
     include: applicationEventsInclude
   });
@@ -338,4 +342,31 @@ function normalizeApplicationLink(link: { label?: string | null; url: string }) 
     label: link.label?.trim() || null,
     url: link.url.trim()
   };
+}
+
+async function normalizeSubmittedResumeRunId(input: { submittedResumeRunId?: string | null }) {
+  if (!Object.hasOwn(input, "submittedResumeRunId")) {
+    return undefined;
+  }
+
+  const submittedResumeRunId = input.submittedResumeRunId?.trim() || null;
+  if (!submittedResumeRunId) {
+    return null;
+  }
+
+  const resumeRun = await prisma.resumeRun.findFirst({
+    where: {
+      id: submittedResumeRunId,
+      ownerKey: LOCAL_OWNER_KEY
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!resumeRun) {
+    throw new HttpError(404, "Resume run not found.");
+  }
+
+  return resumeRun.id;
 }

@@ -260,6 +260,33 @@
   padding: 0.75rem;
 }
 
+.application-resume-editor {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.application-resume-editor h3 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.42857;
+}
+
+.application-resume-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.38462;
+}
+
+.application-resume-summary strong {
+  color: var(--app-text);
+  font-weight: 600;
+}
+
 .application-interview-editor {
   display: grid;
   gap: 0.5rem;

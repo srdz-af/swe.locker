@@ -62,6 +62,7 @@ export type ApplicationDto = {
   notes: string | null;
   interviewDates: ApplicationInterviewDateDto[];
   links: ApplicationLinkDto[];
+  submittedResumeRunId: string | null;
   status: ApplicationStatus;
   archivedAt: string | null;
   createdAt: string;
@@ -145,6 +146,7 @@ export type UpdateApplicationDetailsRequest = {
   notes?: string | null;
   interviewDates?: ApplicationInterviewDateDto[];
   links?: ApplicationLinkDto[];
+  submittedResumeRunId?: string | null;
 };
 
 export type CreateResumeRunRequest = {

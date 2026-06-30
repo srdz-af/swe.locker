@@ -22,6 +22,9 @@ const prismaMock = vi.hoisted(() => ({
   applicationEvent: {
     create: vi.fn(),
     findMany: vi.fn()
+  },
+  resumeRun: {
+    findFirst: vi.fn()
   }
 }));
 
@@ -40,6 +43,7 @@ const baseApplication = {
   notes: null,
   interviewDates: "[]",
   links: "[]",
+  submittedResumeRunId: null,
   status: "APPLIED",
   archivedAt: null,
   createdAt: new Date("2026-06-01T00:00:00.000Z"),
@@ -71,6 +75,7 @@ describe("applicationService", () => {
         notes: null,
         interviewDates: [],
         links: [],
+        submittedResumeRunId: null,
         status: "APPLIED",
         archivedAt: null,
         createdAt: "2026-06-01T00:00:00.000Z",
@@ -280,6 +285,97 @@ describe("applicationService", () => {
       }
     });
     expect(prismaMock.applicationEvent.create).not.toHaveBeenCalled();
+    expect(prismaMock.resumeRun.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("associates an application with a submitted resume run", async () => {
+    const updatedApplication = {
+      ...baseApplication,
+      submittedResumeRunId: "resume_run_1",
+      updatedAt: new Date("2026-06-05T00:00:00.000Z")
+    };
+    prismaMock.application.findFirst.mockResolvedValue(baseApplication);
+    prismaMock.resumeRun.findFirst.mockResolvedValue({ id: "resume_run_1" });
+    prismaMock.application.update.mockResolvedValue(updatedApplication);
+
+    await expect(
+      updateApplicationDetails("application_1", {
+        submittedResumeRunId: " resume_run_1 "
+      })
+    ).resolves.toMatchObject({
+      id: "application_1",
+      submittedResumeRunId: "resume_run_1"
+    });
+    expect(prismaMock.resumeRun.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "resume_run_1",
+        ownerKey: "local"
+      },
+      select: {
+        id: true
+      }
+    });
+    expect(prismaMock.application.update).toHaveBeenCalledWith({
+      where: { id: "application_1" },
+      data: {
+        submittedResumeRunId: "resume_run_1"
+      },
+      include: {
+        events: {
+          orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }]
+        }
+      }
+    });
+  });
+
+  it("clears an associated submitted resume run", async () => {
+    const applicationWithResume = {
+      ...baseApplication,
+      submittedResumeRunId: "resume_run_1"
+    };
+    const updatedApplication = {
+      ...applicationWithResume,
+      submittedResumeRunId: null,
+      updatedAt: new Date("2026-06-05T00:00:00.000Z")
+    };
+    prismaMock.application.findFirst.mockResolvedValue(applicationWithResume);
+    prismaMock.application.update.mockResolvedValue(updatedApplication);
+
+    await expect(
+      updateApplicationDetails("application_1", {
+        submittedResumeRunId: null
+      })
+    ).resolves.toMatchObject({
+      id: "application_1",
+      submittedResumeRunId: null
+    });
+    expect(prismaMock.resumeRun.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.application.update).toHaveBeenCalledWith({
+      where: { id: "application_1" },
+      data: {
+        submittedResumeRunId: null
+      },
+      include: {
+        events: {
+          orderBy: [{ eventDate: "asc" }, { createdAt: "asc" }]
+        }
+      }
+    });
+  });
+
+  it("rejects unknown submitted resume runs", async () => {
+    prismaMock.application.findFirst.mockResolvedValue(baseApplication);
+    prismaMock.resumeRun.findFirst.mockResolvedValue(null);
+
+    await expect(
+      updateApplicationDetails("application_1", {
+        submittedResumeRunId: "missing_resume_run"
+      })
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Resume run not found."
+    } satisfies Partial<HttpError>);
+    expect(prismaMock.application.update).not.toHaveBeenCalled();
   });
 
   it("archives a tracked application", async () => {

@@ -23,6 +23,7 @@ type TextModePanelProps = {
   tabsAriaLabel: string;
   previewLabel: string;
   rawLabel: string;
+  toggleLabel?: string;
   afterHeader?: ReactNode;
   footer?: ReactNode;
   previewAriaLabel?: string;
@@ -74,7 +75,8 @@ export const TextModePanel = memo(function TextModePanel({
   title,
   tabsAriaLabel,
   tabsClassName,
-  tabsHelp
+  tabsHelp,
+  toggleLabel
 }: TextModePanelProps) {
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const rawScrollRef = useRef<HTMLDivElement | null>(null);
@@ -197,8 +199,8 @@ export const TextModePanel = memo(function TextModePanel({
             <Toggle
               aria-label={tabsAriaLabel}
               id={`${id}-mode-toggle`}
-              labelA={previewLabel}
-              labelB={rawLabel}
+              labelA={toggleLabel ?? previewLabel}
+              labelB={toggleLabel ?? rawLabel}
               size="sm"
               toggled={mode === "raw"}
               onToggle={(checked) => handleModeChange(checked ? "raw" : "preview")}

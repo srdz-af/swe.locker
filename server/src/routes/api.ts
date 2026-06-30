@@ -236,7 +236,8 @@ const applicationInterviewDateSchema = z.object({
 const updateApplicationDetailsBodySchema = z.object({
   notes: z.string().optional().nullable(),
   interviewDates: z.array(applicationInterviewDateSchema).optional(),
-  links: z.array(applicationLinkSchema).optional()
+  links: z.array(applicationLinkSchema).optional(),
+  submittedResumeRunId: z.string().trim().min(1).optional().nullable()
 });
 
 const applicationActivityQuerySchema = z.object({
