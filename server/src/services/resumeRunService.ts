@@ -4,7 +4,7 @@ import { HttpError } from "../errors.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ResumeTier } from "../generated/prisma/client.js";
 import { calculateResumeGrade, gradeResume } from "../grading/resumeGrader.js";
-import type { ResumeGradeCommentGroup, ResumeGradeMetric, ResumeRank } from "../grading/resumeGrader.js";
+import type { ResumeGradeCommentGroup, ResumeGradeItem, ResumeGradeMetric, ResumeRank, ResumeTextRange } from "../grading/resumeGrader.js";
 import { toResumeRunDto } from "./mappers.js";
 
 const resumeTiers = new Set<ResumeTier>(["S", "A", "B", "C"]);
@@ -41,11 +41,8 @@ export async function createResumeRun(input: {
   const tier = normalizeGraderRank(gradingResult.rank);
   const metrics = normalizeGraderMetrics(gradingResult.metrics);
   const comments = normalizeGraderCommentGroups(gradingResult.comments ?? [], parsedText);
-  const grade = calculateResumeGrade(metrics);
-
-  if (grade === null) {
-    throw new Error("Resume grader returned invalid metrics.");
-  }
+  const resumeItems = normalizeGraderResumeItems(gradingResult.resumeItems ?? [], parsedText);
+  const grade = calculateResumeGradeFromBulletGrades(flattenResumeItemBulletGrades(resumeItems));
 
   const data = {
     ownerKey: LOCAL_OWNER_KEY,
@@ -56,6 +53,7 @@ export async function createResumeRun(input: {
     verdict: gradingResult.verdict.trim() || null,
     metrics: JSON.stringify(metrics),
     comments: JSON.stringify(comments),
+    bulletGrades: JSON.stringify(resumeItems),
     ...(createdAt ? { createdAt } : {})
   };
 
@@ -161,6 +159,137 @@ function normalizeGraderCommentGroups(commentGroups: ResumeGradeCommentGroup[], 
       };
     })
     .filter((commentGroup) => commentGroup.comments.length > 0);
+}
+
+function normalizeGraderResumeItems(resumeItems: ResumeGradeItem[], parsedText: string) {
+  return resumeItems
+    .map((item, itemIndex) => {
+      const id = item.id.trim() || `resume-item-${itemIndex + 1}`;
+
+      if (!id || !Array.isArray(item.bullets)) {
+        throw new Error("Resume grader returned invalid resume items.");
+      }
+
+      const bullets = item.bullets
+        .map((bulletGrade, bulletIndex) => {
+          const bulletId = bulletGrade.id.trim() || `bullet-${bulletIndex + 1}`;
+          const label = bulletGrade.label.trim() || `B${bulletGrade.bulletIndex || bulletIndex + 1}`;
+          const range = normalizeGraderTextRange(bulletGrade.range, parsedText, "Resume grader returned invalid bullet grades.");
+
+          if (
+            !bulletId ||
+            !label ||
+            !Number.isInteger(bulletGrade.bulletIndex) ||
+            bulletGrade.bulletIndex < 1 ||
+            !Array.isArray(bulletGrade.metrics)
+          ) {
+            throw new Error("Resume grader returned invalid bullet grades.");
+          }
+
+          const metrics = bulletGrade.metrics.map((metric, metricIndex) => {
+            const metricLabel = metric.label.trim();
+
+            if (
+              !metricLabel ||
+              !Number.isInteger(metric.value) ||
+              metric.value < 0 ||
+              metric.value > 100 ||
+              !Array.isArray(metric.comments)
+            ) {
+              throw new Error("Resume grader returned invalid bullet grades.");
+            }
+
+            const comments = metric.comments.map((comment, commentIndex) => {
+              const commentText = comment.text.trim();
+              const commentId = comment.id.trim() || `${bulletId}-metric-${metricIndex}-comment-${commentIndex}`;
+
+              if (
+                !commentText ||
+                !Number.isInteger(comment.start) ||
+                !Number.isInteger(comment.end) ||
+                comment.start < 0 ||
+                comment.end <= comment.start ||
+                comment.end > parsedText.length
+              ) {
+                throw new Error("Resume grader returned invalid bullet grades.");
+              }
+
+              return {
+                id: commentId,
+                start: comment.start,
+                end: comment.end,
+                text: commentText
+              };
+            });
+
+            return {
+              label: metricLabel,
+              value: metric.value,
+              comments
+            };
+          });
+          const computedGrade = calculateResumeGrade(metrics);
+          const grade = Number.isInteger(bulletGrade.grade) ? bulletGrade.grade : computedGrade;
+
+          if (grade === null || grade < 0 || grade > 100) {
+            throw new Error("Resume grader returned invalid bullet grades.");
+          }
+
+          return {
+            id: bulletId,
+            label,
+            grade,
+            range,
+            bulletIndex: bulletGrade.bulletIndex,
+            metrics
+          };
+        })
+        .filter((bulletGrade) => bulletGrade.metrics.length > 0);
+
+      return {
+        id,
+        title: normalizeNullableGraderTextRange(item.title, parsedText, "Resume grader returned invalid resume items."),
+        description: normalizeNullableGraderTextRange(item.description, parsedText, "Resume grader returned invalid resume items."),
+        date: normalizeNullableGraderTextRange(item.date, parsedText, "Resume grader returned invalid resume items."),
+        bullets
+      };
+    })
+    .filter((item) => item.bullets.length > 0);
+}
+
+function calculateResumeGradeFromBulletGrades(bulletGrades: Array<{ grade: number }>) {
+  if (bulletGrades.length === 0) {
+    return null;
+  }
+
+  const total = bulletGrades.reduce((sum, bulletGrade) => sum + bulletGrade.grade, 0);
+  return Math.round(total / bulletGrades.length);
+}
+
+function flattenResumeItemBulletGrades(resumeItems: Array<{ bullets: Array<{ grade: number }> }>) {
+  return resumeItems.flatMap((item) => item.bullets);
+}
+
+function normalizeNullableGraderTextRange(range: ResumeTextRange | null, parsedText: string, errorMessage: string) {
+  return range ? normalizeGraderTextRange(range, parsedText, errorMessage) : null;
+}
+
+function normalizeGraderTextRange(range: ResumeTextRange, parsedText: string, errorMessage: string) {
+  if (
+    !range ||
+    !Number.isInteger(range.start) ||
+    !Number.isInteger(range.end) ||
+    range.start < 0 ||
+    range.end <= range.start ||
+    range.end > parsedText.length
+  ) {
+    throw new Error(errorMessage);
+  }
+
+  return {
+    start: range.start,
+    end: range.end
+  };
 }
 
 function normalizeCreatedAt(value: string | undefined) {

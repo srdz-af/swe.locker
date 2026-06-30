@@ -151,7 +151,8 @@ export function createExtractedResumeRun(file: File, parsedText: string): Resume
     tier: null,
     verdict: "Raw text extracted. Grading is not implemented yet.",
     metrics: [],
-    comments: []
+    comments: [],
+    resumeItems: []
   };
 }
 

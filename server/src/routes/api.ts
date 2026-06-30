@@ -18,13 +18,21 @@ import { followCompany, unfollowCompany } from "../services/followedCompanyServi
 import { toSourceConfigDto } from "../services/mappers.js";
 import { listPostings } from "../services/postingService.js";
 import { createResumeRun, deleteResumeRun, listResumeRuns } from "../services/resumeRunService.js";
-import { ensureSourceConfig } from "../services/sourceConfigService.js";
+import { ensureSourceConfig, ensureSourceConfigs } from "../services/sourceConfigService.js";
 
 export const apiRouter = Router();
 
 apiRouter.get("/source-config", async (_request, response, next) => {
   try {
     response.json(toSourceConfigDto(await ensureSourceConfig()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/source-configs", async (_request, response, next) => {
+  try {
+    response.json((await ensureSourceConfigs()).map(toSourceConfigDto));
   } catch (error) {
     next(error);
   }

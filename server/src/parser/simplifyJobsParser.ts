@@ -26,6 +26,14 @@ type TableBlock = {
   html: string;
 };
 
+type TableColumnIndexes = {
+  company: number;
+  role: number;
+  location: number;
+  application: number;
+  age: number;
+};
+
 export function parseSimplifyJobsReadme(markdown: string, season: string) {
   const tables = extractTableBlocks(markdown);
   return tables.flatMap((table) => parseTable(table, season));
@@ -82,19 +90,20 @@ function parseCategoryHeading(line: string) {
 function parseTable(table: TableBlock, season: string) {
   const $ = cheerio.load(table.html);
   const postings: ParsedPosting[] = [];
+  const columnIndexes = getTableColumnIndexes($);
   let previousCompany: string | null = null;
 
   $("tbody tr").each((_index, row) => {
     const cells = $(row).find("td");
-    if (cells.length < 5) {
+    if (cells.length <= Math.max(...Object.values(columnIndexes))) {
       return;
     }
 
-    const companyCell = cells.eq(0);
-    const roleCell = cells.eq(1);
-    const locationCell = cells.eq(2);
-    const applicationCell = cells.eq(3);
-    const ageCell = cells.eq(4);
+    const companyCell = cells.eq(columnIndexes.company);
+    const roleCell = cells.eq(columnIndexes.role);
+    const locationCell = cells.eq(columnIndexes.location);
+    const applicationCell = cells.eq(columnIndexes.application);
+    const ageCell = cells.eq(columnIndexes.age);
     const rawCompanyText = compactWhitespace(companyCell.text());
     const isContinuation = rawCompanyText === "↳";
     const company = isContinuation ? previousCompany : cleanCellText(rawCompanyText);
@@ -143,6 +152,25 @@ function parseTable(table: TableBlock, season: string) {
   });
 
   return postings;
+}
+
+function getTableColumnIndexes($: cheerio.CheerioAPI): TableColumnIndexes {
+  const headers = $("thead th")
+    .toArray()
+    .map((header) => compactWhitespace($(header).text()).toLowerCase());
+
+  return {
+    company: findHeaderIndex(headers, "company", 0),
+    role: findHeaderIndex(headers, "role", 1),
+    location: findHeaderIndex(headers, "location", 2),
+    application: findHeaderIndex(headers, "application", 3),
+    age: findHeaderIndex(headers, "age", 4)
+  };
+}
+
+function findHeaderIndex(headers: string[], name: string, fallbackIndex: number) {
+  const index = headers.findIndex((header) => header === name || header.includes(name));
+  return index >= 0 ? index : fallbackIndex;
 }
 
 function cleanCellText(value: string) {

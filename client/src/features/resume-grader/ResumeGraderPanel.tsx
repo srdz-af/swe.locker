@@ -1,20 +1,17 @@
 import { memo, type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, FileUploaderButton, Loading, Modal, Tab, TabList, TabPanel, TabPanels, Tabs, Tile } from "@carbon/react";
-import { ChevronDown, Help, TrashCan } from "@carbon/icons-react";
-import { LineChart, RadarChart, ScaleTypes } from "@carbon/charts-react";
-import type { ChartTabularData, LineChartOptions, RadarChartOptions } from "@carbon/charts-react";
-import type { ApplicationDto } from "../../../../shared/src/index";
+import { Help, TrashCan } from "@carbon/icons-react";
+import { HeatmapChart, RadarChart, ScaleTypes } from "@carbon/charts-react";
+import type { ChartTabularData, HeatmapChartOptions, RadarChartOptions } from "@carbon/charts-react";
+import type { ApplicationDto, ResumeGraderBulletGradeDto, ResumeGraderItemDto } from "../../../../shared/src/index";
 import { TextModePanel, type TextMode } from "../../components/TextModePanel";
 import { getResumeGradeColor, resumeAcceptedFileTypes } from "../../constants";
 import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatDate, getApplicationStatusLabel } from "../../utils/format";
-import {
-  compareResumeRunsByCreatedAtAsc,
-  getResumeRunIdFromChartDatum,
-  getResumeRunIdFromChartTarget
-} from "./resumeRuns";
 import { parseResumeMarkdownModel } from "./resumeMarkdown";
 import type { ParsedResumeDocument } from "./resumeMarkdown";
+
+const resumeHeatmapGradeColors = Array.from({ length: 101 }, (_, grade) => getResumeGradeColor(grade));
 
 export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   applications,
@@ -35,27 +32,93 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => latestRun?.id ?? null);
   const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
   const [expandedCommentId, setExpandedCommentId] = useState<string | null>(null);
+  const [hoveredReviewBulletIndex, setHoveredReviewBulletIndex] = useState<number | null>(null);
   const [resumeTextViewMode, setResumeTextViewMode] = useState<TextMode>("preview");
-  const resumeHistoryChartRef = useRef<HTMLDivElement | null>(null);
+  const [reviewScrollRequest, setReviewScrollRequest] = useState<ResumeReviewScrollRequest | null>(null);
+  const [selectedReviewBulletIndex, setSelectedReviewBulletIndex] = useState<number | null>(null);
+  const heatmapElementRef = useRef<HTMLDivElement | null>(null);
   const previousLatestRunIdRef = useRef<string | null>(latestRun?.id ?? null);
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? latestRun,
     [latestRun, runs, selectedRunId]
   );
+  const selectedRunBullets = useMemo(() => (selectedRun ? getResumeRunBullets(selectedRun) : []), [selectedRun]);
   const selectedGrade = selectedRun?.grade ?? null;
   const selectedTier = selectedRun?.tier ?? null;
   const selectedGradeColor = useMemo(() => getResumeGradeColor(selectedGrade), [selectedGrade]);
   const hasSelectedGrade = selectedGrade !== null && selectedTier !== null;
   const selectedRunComments = selectedRun?.verdict ?? "Raw text extracted. Grading is not implemented yet.";
+  const resumeCommentMetadata = useMemo(
+    () => (selectedRun ? getResumeCommentMetadata(selectedRun) : new Map<string, ResumeCommentMetadata>()),
+    [selectedRun]
+  );
   const resumeCommentGroups = useMemo(() => (selectedRun ? getResumeCommentGroups(selectedRun) : []), [selectedRun]);
-  const resumeReviewComments = useMemo(() => getResumeReviewComments(resumeCommentGroups), [resumeCommentGroups]);
+  const resumeReviewComments = useMemo(
+    () => getResumeReviewComments(resumeCommentGroups, resumeCommentMetadata),
+    [resumeCommentGroups, resumeCommentMetadata]
+  );
+  const selectedRunBulletRanges = useMemo(
+    () =>
+      selectedRunBullets.map((bullet) => ({
+        bulletIndex: bullet.bulletIndex,
+        end: bullet.range.end,
+        start: getResumeBulletDisplayStart(selectedRun?.parsedText ?? "", bullet.range.start)
+      })),
+    [selectedRun?.parsedText, selectedRunBullets]
+  );
+  const expandedResumeReviewComment = useMemo(
+    () => (expandedCommentId ? resumeReviewComments.find((comment) => comment.id === expandedCommentId) ?? null : null),
+    [expandedCommentId, resumeReviewComments]
+  );
+  const priorityResumeReviewComments = useMemo(
+    () => getPriorityResumeReviewComments(resumeReviewComments),
+    [resumeReviewComments]
+  );
+  const selectedBulletReviewComments = useMemo(
+    () =>
+      selectedReviewBulletIndex === null
+        ? []
+        : getResumeReviewCommentsForBullet(resumeReviewComments, selectedReviewBulletIndex),
+    [resumeReviewComments, selectedReviewBulletIndex]
+  );
+  const hoveredBulletReviewComments = useMemo(
+    () =>
+      hoveredReviewBulletIndex === null
+        ? []
+        : getResumeReviewCommentsForBullet(resumeReviewComments, hoveredReviewBulletIndex).map((comment) => ({
+            ...comment,
+            isHoverPreview: true
+          })),
+    [hoveredReviewBulletIndex, resumeReviewComments]
+  );
+  const visibleResumeReviewCards = useMemo(() => {
+    if (expandedResumeReviewComment) {
+      return [expandedResumeReviewComment];
+    }
+
+    return selectedReviewBulletIndex === null ? priorityResumeReviewComments : selectedBulletReviewComments;
+  }, [expandedResumeReviewComment, priorityResumeReviewComments, selectedBulletReviewComments, selectedReviewBulletIndex]);
+  const visibleResumeReviewHighlights = useMemo(
+    () => {
+      const visibleComments = expandedResumeReviewComment
+        ? [expandedResumeReviewComment]
+        : selectedReviewBulletIndex === null
+          ? priorityResumeReviewComments
+          : selectedBulletReviewComments;
+
+      return mergeResumeReviewComments(visibleComments, hoveredBulletReviewComments);
+    },
+    [
+      expandedResumeReviewComment,
+      hoveredBulletReviewComments,
+      priorityResumeReviewComments,
+      selectedBulletReviewComments,
+      selectedReviewBulletIndex
+    ]
+  );
   const selectedRunApplications = useMemo(
     () => getAssociatedResumeApplications(applications, selectedRun?.id ?? null),
     [applications, selectedRun?.id]
-  );
-  const selectedRunMetricColumns = useMemo(
-    () => (selectedRun ? getResumeMetricColumns(selectedRun, resumeCommentGroups) : []),
-    [resumeCommentGroups, selectedRun]
   );
   const resumeMarkdownDocument = useMemo(
     () => (selectedRun ? parseResumeMarkdownModel(selectedRun.parsedText) : null),
@@ -85,7 +148,10 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
 
   useEffect(() => {
     setExpandedCommentId(null);
+    setHoveredReviewBulletIndex(null);
+    setReviewScrollRequest(null);
     setResumeTextViewMode("preview");
+    setSelectedReviewBulletIndex(null);
   }, [selectedRun?.id]);
 
   useEffect(() => {
@@ -98,16 +164,72 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
     });
   }, [resumeReviewComments]);
 
-  const runHistoryData = useMemo<ChartTabularData>(
+  function handleResumeCommentActivate(commentId: string) {
+    setHoveredReviewBulletIndex(null);
+    setSelectedReviewBulletIndex(null);
+    setExpandedCommentId(commentId);
+  }
+
+  function handleResumeBulletClick(bulletIndex: number) {
+    setExpandedCommentId(null);
+    setHoveredReviewBulletIndex(null);
+    setSelectedReviewBulletIndex(bulletIndex);
+  }
+
+  function handleResumeBulletHover(bulletIndex: number | null) {
+    setHoveredReviewBulletIndex(bulletIndex);
+  }
+
+  const selectedRunHeatmapData = useMemo<ChartTabularData>(
     () =>
-      [...runs].sort(compareResumeRunsByCreatedAtAsc).map((run, runIndex) => ({
-        group: "Grade",
-        run: `${runIndex + 1}. ${formatDate(run.createdAt)}`,
-        runId: run.id,
-        value: run.grade ?? 0
-      })),
-    [runs]
+      selectedRun && selectedRunBullets.length > 0
+        ? selectedRunBullets.flatMap((bullet) =>
+            bullet.metrics.map((metric) => ({
+              group: metric.label,
+              bullet: String(bullet.bulletIndex),
+              bulletIndex: bullet.bulletIndex,
+              bulletGrade: bullet.grade,
+              bulletText: getResumeRangeText(selectedRun.parsedText, bullet.range),
+              metric: metric.label,
+              value: metric.value
+            }))
+          )
+        : [],
+    [selectedRun, selectedRunBullets]
   );
+  const heatmapChartKey = selectedRun
+    ? `${selectedRun.id}-${selectedRunBullets.length}-${selectedRunHeatmapData.length}-${themeMode}`
+    : "empty";
+
+  useEffect(() => {
+    const heatmapElement = heatmapElementRef.current;
+    if (!heatmapElement) {
+      return undefined;
+    }
+
+    const handleHeatmapClick = (event: MouseEvent) => {
+      const bulletIndex = getResumeHeatmapBulletIndexFromTarget(event.target, heatmapElement);
+      if (bulletIndex === null) {
+        return;
+      }
+
+      setExpandedCommentId(null);
+      setSelectedReviewBulletIndex(bulletIndex);
+      setReviewScrollRequest((currentRequest) => ({
+        bulletIndex,
+        requestId: (currentRequest?.requestId ?? 0) + 1
+      }));
+      setResumeTextViewMode("preview");
+      setIsCommentsModalOpen(true);
+    };
+
+    heatmapElement.addEventListener("click", handleHeatmapClick);
+
+    return () => {
+      heatmapElement.removeEventListener("click", handleHeatmapClick);
+    };
+  }, [selectedRunHeatmapData]);
+
   const selectedRunRadarData = useMemo<ChartTabularData>(
     () =>
       selectedRun?.metrics.map((metric) => ({
@@ -148,82 +270,52 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
     }),
     [selectedGradeColor, themeMode]
   );
-  const runHistoryOptions = useMemo<LineChartOptions>(
+  const heatmapOptions = useMemo<HeatmapChartOptions>(
     () => ({
       accessibility: {
-        svgAriaLabel: "Resume grade history"
+        svgAriaLabel: "Resume bullet metric heatmap"
       },
       axes: {
         bottom: {
-          mapsTo: "run",
+          mapsTo: "bullet",
           scaleType: ScaleTypes.LABELS,
-          visible: false
+          title: "Bullet"
         },
         left: {
-          domain: [0, 100],
-          mapsTo: "value",
-          ticks: {
-            number: 5
-          }
+          mapsTo: "metric",
+          scaleType: ScaleTypes.LABELS,
+          title: "Metric"
         }
       },
-      points: {
-        radius: 4
-      },
       color: {
-        scale: {
-          Grade: "#0f62fe"
+        gradient: {
+          colors: resumeHeatmapGradeColors
         }
       },
       data: {
         groupMapsTo: "group"
       },
-      height: "100%",
-      legend: {
-        enabled: false
+      heatmap: {
+        colorDomain: {
+          min: 0,
+          max: 100
+        },
+        colorLegend: {
+          title: "Score"
+        }
       },
+      height: "100%",
       theme: themeMode === "dark" ? "g100" : "white",
       toolbar: {
         enabled: false
       },
       tooltip: {
-        valueFormatter: (value) => `${value}/100`
+        totalLabel: "Score",
+        valueFormatter: (value, label) => (label === "Score" ? `${value}/100` : String(value))
       }
     }),
     [themeMode]
   );
-
-  useEffect(() => {
-    const chartElement = resumeHistoryChartRef.current;
-    if (!chartElement) {
-      return undefined;
-    }
-
-    const runIds = new Set(runs.map((run) => run.id));
-    const handleChartClick = (event: MouseEvent) => {
-      const runId = getResumeRunIdFromChartTarget(event.target, chartElement);
-      if (runId && runIds.has(runId)) {
-        setSelectedRunId(runId);
-      }
-    };
-
-    chartElement.addEventListener("click", handleChartClick);
-
-    return () => chartElement.removeEventListener("click", handleChartClick);
-  }, [runs]);
-
-  useEffect(() => {
-    const chartElement = resumeHistoryChartRef.current;
-    if (!chartElement) {
-      return;
-    }
-
-    const chartPoints = chartElement.querySelectorAll("circle");
-    chartPoints.forEach((point) => {
-      const runId = getResumeRunIdFromChartDatum((point as SVGCircleElement & { __data__?: unknown }).__data__);
-      point.classList.toggle("resume-history-point--selected", Boolean(runId && runId === selectedRun?.id));
-    });
-  }, [runHistoryData, selectedRun?.id]);
 
   return (
     <div className="resume-grader-stack">
@@ -245,7 +337,9 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                   size="sm"
                   type="button"
                   onClick={() => {
+                    setExpandedCommentId(null);
                     setResumeTextViewMode("preview");
+                    setSelectedReviewBulletIndex(null);
                     setIsCommentsModalOpen(true);
                   }}
                 >
@@ -253,16 +347,16 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                 </Button>
               </div>
 
-              <div className="resume-history-chart-panel">
-                <h3>Run history</h3>
-                {runHistoryData.length > 0 ? (
-                  <div className="resume-history-line-chart" ref={resumeHistoryChartRef}>
-                    <LineChart data={runHistoryData} options={runHistoryOptions} />
+              <div className="resume-heatmap-panel">
+                <h3>Bullet heatmap</h3>
+                {selectedRunHeatmapData.length > 0 ? (
+                  <div className="resume-bullet-heatmap" ref={heatmapElementRef}>
+                    <HeatmapChart key={heatmapChartKey} data={selectedRunHeatmapData} options={heatmapOptions} />
                   </div>
                 ) : (
                   <div className="posting-empty">
-                    <p>No resume runs yet.</p>
-                    <span>Run a resume analysis.</span>
+                    <p>No bullet grades yet.</p>
+                    <span>Run a new resume analysis.</span>
                   </div>
                 )}
               </div>
@@ -341,7 +435,6 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                 <TabList aria-label="Resume review details" size="sm">
                   <Tab>Comments</Tab>
                   <Tab>Associated applications</Tab>
-                  <Tab>Metrics</Tab>
                 </TabList>
                 <TabPanels>
                   <TabPanel className="resume-review-tab-panel resume-review-tab-panel--comments">
@@ -366,15 +459,15 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                                 </div>
                               ) : null
                             }
-                            comments={resumeReviewComments}
+                            bulletRanges={selectedRunBulletRanges}
+                            commentCards={visibleResumeReviewCards}
                             document={resumeMarkdownDocument}
                             expandedCommentId={expandedCommentId}
-                            onCommentToggle={(commentId) =>
-                              setExpandedCommentId((currentCommentId) =>
-                                currentCommentId === commentId ? null : commentId
-                              )
-                            }
-                            onHighlightClick={(commentId) => setExpandedCommentId(commentId)}
+                            highlightComments={visibleResumeReviewHighlights}
+                            onBulletClick={handleResumeBulletClick}
+                            onBulletHover={handleResumeBulletHover}
+                            onHighlightClick={handleResumeCommentActivate}
+                            scrollRequest={reviewScrollRequest}
                             text={selectedRun.parsedText}
                           />
                         ) : null
@@ -384,14 +477,14 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                       rawContent={
                         resumeTextViewMode === "raw" ? (
                           <ResumeReviewDocument
-                            comments={resumeReviewComments}
+                            bulletRanges={selectedRunBulletRanges}
+                            commentCards={visibleResumeReviewCards}
                             expandedCommentId={expandedCommentId}
-                            onCommentToggle={(commentId) =>
-                              setExpandedCommentId((currentCommentId) =>
-                                currentCommentId === commentId ? null : commentId
-                              )
-                            }
-                            onHighlightClick={(commentId) => setExpandedCommentId(commentId)}
+                            highlightComments={visibleResumeReviewHighlights}
+                            onBulletClick={handleResumeBulletClick}
+                            onBulletHover={handleResumeBulletHover}
+                            onHighlightClick={handleResumeCommentActivate}
+                            scrollRequest={reviewScrollRequest}
                             text={selectedRun.parsedText}
                           />
                         ) : null
@@ -420,11 +513,6 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                   <TabPanel className="resume-review-tab-panel resume-review-tab-panel--details">
                     <div className="resume-review-detail-panel">
                       <ResumeAssociatedApplications applications={selectedRunApplications} />
-                    </div>
-                  </TabPanel>
-                  <TabPanel className="resume-review-tab-panel resume-review-tab-panel--details">
-                    <div className="resume-review-detail-panel">
-                      <ResumeMetricsTable columns={selectedRunMetricColumns} />
                     </div>
                   </TabPanel>
                 </TabPanels>
@@ -518,9 +606,12 @@ type ResumeTextComment = {
 };
 
 type ResumeReviewComment = ResumeTextComment & {
+  bulletIndex: number | null;
   colorIndex: number;
   groupId: string;
   groupLabel: string;
+  isHoverPreview?: boolean;
+  metricValue: number | null;
   ordinal: number;
 };
 
@@ -531,15 +622,9 @@ type ResumeCommentGroup = {
   comments: ResumeTextComment[];
 };
 
-type ResumeMetricColumn = {
-  id: string;
-  label: string;
-  scoreLabel: string;
-  comments: ResumeTextComment[];
-};
-
 type ResumeTextSegment = {
   anchorCommentIds: string[];
+  bulletIndex: number | null;
   comments: ResumeReviewComment[];
   text: string;
 };
@@ -549,10 +634,27 @@ type ResumeTextRange = {
   end: number;
 };
 
+type ResumeReviewBulletRange = ResumeTextRange & {
+  bulletIndex: number;
+};
+
+type ResumeRunBulletGrade = ResumeGraderBulletGradeDto & {
+  item: ResumeGraderItemDto;
+};
+
 type ResumeReviewLayoutState = {
-  measuredCommentId: string | null;
   minBlockSize: number;
   positions: Record<string, number>;
+};
+
+type ResumeReviewScrollRequest = {
+  bulletIndex: number;
+  requestId: number;
+};
+
+type ResumeCommentMetadata = {
+  bulletIndex: number;
+  metricValue: number;
 };
 
 type SetResumeReviewHighlightRef = (commentId: string, refKey: string, element: HTMLElement | null) => void;
@@ -564,6 +666,7 @@ type ResumeNormalizedTextIndex = {
 };
 
 const resumeReviewColorCount = 8;
+const resumeReviewDefaultCommentCount = 5;
 
 function hasResumeMarkdownReadabilityWarning(warnings: string[]) {
   return warnings.some((warning) =>
@@ -584,6 +687,36 @@ function getAssociatedResumeApplications(applications: ApplicationDto[], resumeR
 
       return secondUpdatedAt - firstUpdatedAt;
     });
+}
+
+function getResumeCommentMetadata(run: ResumeGraderRun) {
+  const metadata = new Map<string, ResumeCommentMetadata>();
+
+  for (const bullet of getResumeRunBullets(run)) {
+    for (const metric of bullet.metrics) {
+      for (const comment of metric.comments) {
+        metadata.set(comment.id, {
+          bulletIndex: bullet.bulletIndex,
+          metricValue: metric.value
+        });
+      }
+    }
+  }
+
+  return metadata;
+}
+
+function getResumeRunBullets(run: ResumeGraderRun): ResumeRunBulletGrade[] {
+  return run.resumeItems.flatMap((item) =>
+    item.bullets.map((bullet) => ({
+      ...bullet,
+      item
+    }))
+  );
+}
+
+function getResumeRangeText(text: string, range: ResumeTextRange) {
+  return text.slice(range.start, range.end).replace(/\s+/g, " ").trim();
 }
 
 function getResumeCommentGroups(run: ResumeGraderRun): ResumeCommentGroup[] {
@@ -623,40 +756,73 @@ function getResumeCommentGroups(run: ResumeGraderRun): ResumeCommentGroup[] {
   return groups;
 }
 
-function getResumeMetricColumns(run: ResumeGraderRun, groups: ResumeCommentGroup[]): ResumeMetricColumn[] {
-  return run.metrics.map((metric, metricIndex) => {
-    const metricId = `metric-${slugifyResumeCommentId(metric.label)}-${metricIndex}`;
-    const metricGroup =
-      groups.find((group) => group.id === metricId) ??
-      groups.find((group) => normalizeResumeCommentGroupLabel(group.label) === normalizeResumeCommentGroupLabel(metric.label));
-
-    return {
-      id: metricGroup?.id ?? metricId,
-      label: metric.label,
-      scoreLabel: metricGroup?.scoreLabel ?? `${metric.value}/100`,
-      comments: metricGroup?.comments ?? []
-    };
-  });
-}
-
-function getResumeReviewComments(groups: ResumeCommentGroup[]): ResumeReviewComment[] {
+function getResumeReviewComments(
+  groups: ResumeCommentGroup[],
+  metadataByCommentId: Map<string, ResumeCommentMetadata>
+): ResumeReviewComment[] {
   let ordinal = 0;
 
   return groups
     .flatMap((group, groupIndex) =>
       group.comments.map((comment) => {
         ordinal += 1;
+        const metadata = metadataByCommentId.get(comment.id) ?? null;
 
         return {
           ...comment,
+          bulletIndex: metadata?.bulletIndex ?? null,
           colorIndex: groupIndex % resumeReviewColorCount,
           groupId: group.id,
           groupLabel: group.label,
+          metricValue: metadata?.metricValue ?? null,
           ordinal
         };
       })
     )
     .sort((firstComment, secondComment) => firstComment.start - secondComment.start || firstComment.end - secondComment.end);
+}
+
+function getPriorityResumeReviewComments(comments: ResumeReviewComment[]) {
+  const priorityComments = [...comments]
+    .filter((comment) => comment.metricValue !== null)
+    .sort(
+      (firstComment, secondComment) =>
+        (firstComment.metricValue ?? Number.POSITIVE_INFINITY) -
+          (secondComment.metricValue ?? Number.POSITIVE_INFINITY) ||
+        firstComment.start - secondComment.start ||
+        firstComment.ordinal - secondComment.ordinal
+    )
+    .slice(0, resumeReviewDefaultCommentCount);
+
+  return (priorityComments.length > 0 ? priorityComments : comments.slice(0, resumeReviewDefaultCommentCount)).sort(
+    (firstComment, secondComment) => firstComment.start - secondComment.start || firstComment.ordinal - secondComment.ordinal
+  );
+}
+
+function getResumeReviewCommentsForBullet(comments: ResumeReviewComment[], bulletIndex: number) {
+  return comments
+    .filter((comment) => comment.bulletIndex === bulletIndex)
+    .sort(
+      (firstComment, secondComment) =>
+        firstComment.start - secondComment.start ||
+        firstComment.end - secondComment.end ||
+        firstComment.ordinal - secondComment.ordinal
+    );
+}
+
+function mergeResumeReviewComments(...commentGroups: ResumeReviewComment[][]) {
+  const commentsById = new Map<string, ResumeReviewComment>();
+
+  for (const comment of commentGroups.flat()) {
+    commentsById.set(comment.id, comment);
+  }
+
+  return Array.from(commentsById.values()).sort(
+    (firstComment, secondComment) =>
+      firstComment.start - secondComment.start ||
+      firstComment.end - secondComment.end ||
+      firstComment.ordinal - secondComment.ordinal
+  );
 }
 
 function getSignalScoreLabel(scoreLabel: string | undefined, tier: string | null) {
@@ -695,6 +861,46 @@ function slugifyResumeCommentId(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "metric";
 }
 
+function getResumeHeatmapBulletIndexFromTarget(target: EventTarget | null, container: HTMLElement) {
+  let element = target instanceof Element ? target : null;
+
+  while (element && element !== container) {
+    const bulletIndex = getResumeHeatmapBulletIndexFromDatum((element as Element & { __data__?: unknown }).__data__);
+    if (bulletIndex !== null) {
+      return bulletIndex;
+    }
+
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
+function getResumeHeatmapBulletIndexFromDatum(value: unknown): number | null {
+  if (typeof value === "string" || typeof value === "number") {
+    const parsedValue = Number.parseInt(String(value), 10);
+    return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const datum = value as { bullet?: unknown; bulletIndex?: unknown; data?: unknown; datum?: unknown };
+  if (typeof datum.bulletIndex === "number" && Number.isInteger(datum.bulletIndex) && datum.bulletIndex > 0) {
+    return datum.bulletIndex;
+  }
+
+  if (typeof datum.bullet === "string" || typeof datum.bullet === "number") {
+    const parsedBullet = Number.parseInt(String(datum.bullet), 10);
+    if (Number.isInteger(parsedBullet) && parsedBullet > 0) {
+      return parsedBullet;
+    }
+  }
+
+  return getResumeHeatmapBulletIndexFromDatum(datum.datum) ?? getResumeHeatmapBulletIndexFromDatum(datum.data);
+}
+
 function ResumeAssociatedApplications({ applications }: { applications: ApplicationDto[] }) {
   if (applications.length === 0) {
     return (
@@ -722,60 +928,12 @@ function ResumeAssociatedApplications({ applications }: { applications: Applicat
   );
 }
 
-function ResumeMetricsTable({ columns }: { columns: ResumeMetricColumn[] }) {
-  if (columns.length === 0) {
-    return (
-      <div className="resume-review-empty">
-        <p>No metrics yet.</p>
-      </div>
-    );
-  }
-
-  const rowCount = Math.max(1, ...columns.map((column) => column.comments.length));
-
-  return (
-    <div className="resume-metrics-table-scroll">
-      <table className="resume-metrics-table">
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column.id} scope="col">
-                <span>{column.label}</span>
-                <strong>{column.scoreLabel}</strong>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rowCount }).map((_, rowIndex) => (
-            <tr key={`metric-comment-row-${rowIndex}`}>
-              {columns.map((column) => {
-                const comment = column.comments[rowIndex];
-
-                return (
-                  <td key={`${column.id}-${rowIndex}`}>
-                    {comment ? (
-                      <p>{comment.text}</p>
-                    ) : rowIndex === 0 ? (
-                      <span className="resume-metrics-empty-cell">No comments</span>
-                    ) : null}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function ResumeReviewSurface({
   children,
   comments,
   contentClassName,
   expandedCommentId,
-  onCommentToggle
+  scrollRequest
 }: {
   children: (
     setHighlightRef: SetResumeReviewHighlightRef,
@@ -784,7 +942,7 @@ function ResumeReviewSurface({
   comments: ResumeReviewComment[];
   contentClassName: string;
   expandedCommentId: string | null;
-  onCommentToggle: (commentId: string) => void;
+  scrollRequest: ResumeReviewScrollRequest | null;
 }) {
   const documentRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -794,16 +952,12 @@ function ResumeReviewSurface({
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const [highlightSelectionVersion, setHighlightSelectionVersion] = useState(0);
   const [layout, setLayout] = useState<ResumeReviewLayoutState>({
-    measuredCommentId: null,
     minBlockSize: 0,
     positions: {}
   });
   const activeComment = comments.find((comment) => comment.id === expandedCommentId) ?? null;
-  const activeCommentTop = activeComment ? layout.positions[activeComment.id] : undefined;
-  const isActiveCommentMeasured =
-    activeComment !== null && layout.measuredCommentId === activeComment.id && activeCommentTop !== undefined;
 
-  function getActiveHighlightElement(commentId: string, contentElement: HTMLElement) {
+  function getCommentHighlightElement(commentId: string, contentElement: HTMLElement) {
     const clickedHighlight = clickedHighlightRef.current;
 
     if (
@@ -848,22 +1002,19 @@ function ResumeReviewSurface({
       const marginTop = marginElement.getBoundingClientRect().top;
       const nextPositions: Record<string, number> = {};
       let commentEnd = 0;
-      let nextMeasuredCommentId: string | null = null;
+      const commentGap = 8;
 
-      if (activeComment) {
-        const highlightElement = getActiveHighlightElement(activeComment.id, contentElement);
-        const cardElement = cardRefs.current.get(activeComment.id);
+      for (const comment of comments) {
+        const highlightElement = getCommentHighlightElement(comment.id, contentElement);
+        const cardElement = cardRefs.current.get(comment.id);
+        const highlightTop = highlightElement
+          ? Math.max(0, highlightElement.getBoundingClientRect().top - marginTop)
+          : commentEnd;
+        const cardHeight = cardElement?.offsetHeight ?? 48;
+        const commentTop = Math.max(highlightTop, commentEnd);
 
-        if (highlightElement) {
-          const highlightTop = highlightElement
-            ? Math.max(0, highlightElement.getBoundingClientRect().top - marginTop)
-            : 0;
-          const cardHeight = cardElement?.offsetHeight ?? 48;
-
-          nextPositions[activeComment.id] = highlightTop;
-          commentEnd = highlightTop + cardHeight;
-          nextMeasuredCommentId = activeComment.id;
-        }
+        nextPositions[comment.id] = commentTop;
+        commentEnd = commentTop + cardHeight + commentGap;
       }
 
       const nextMinBlockSize = Math.max(contentElement.scrollHeight, commentEnd);
@@ -875,16 +1026,11 @@ function ResumeReviewSurface({
           currentPositionKeys.length === nextPositionKeys.length &&
           nextPositionKeys.every((key) => currentLayout.positions[key] === nextPositions[key]);
 
-        if (
-          currentLayout.measuredCommentId === nextMeasuredCommentId &&
-          currentLayout.minBlockSize === nextMinBlockSize &&
-          hasSamePositions
-        ) {
+        if (currentLayout.minBlockSize === nextMinBlockSize && hasSamePositions) {
           return currentLayout;
         }
 
         return {
-          measuredCommentId: nextMeasuredCommentId,
           minBlockSize: nextMinBlockSize,
           positions: nextPositions
         };
@@ -910,7 +1056,58 @@ function ResumeReviewSurface({
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateLayout);
     };
-  }, [activeComment?.id, highlightSelectionVersion]);
+  }, [comments, highlightSelectionVersion]);
+
+  useLayoutEffect(() => {
+    if (!scrollRequest || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const requestedBulletIndex = scrollRequest.bulletIndex;
+    let frameId: number | null = null;
+    let attempts = 0;
+
+    function requestNextFrame(callback: () => void) {
+      frameId = window.requestAnimationFrame(callback);
+    }
+
+    function scrollToRequestedBullet() {
+      const documentElement = documentRef.current;
+      if (!documentElement) {
+        return;
+      }
+
+      const targetElement = documentElement.querySelector<HTMLElement>(
+        `[data-resume-bullet-index="${requestedBulletIndex}"]`
+      );
+      const scrollElement = getResumeReviewScrollElement(documentElement);
+
+      if (targetElement && scrollElement) {
+        const scrollRect = scrollElement.getBoundingClientRect();
+        const targetRect = targetElement.getBoundingClientRect();
+        const nextScrollTop = scrollElement.scrollTop + targetRect.top - scrollRect.top - 24;
+
+        scrollElement.scrollTo({
+          top: Math.max(0, nextScrollTop),
+          behavior: "auto"
+        });
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 4) {
+        requestNextFrame(scrollToRequestedBullet);
+      }
+    }
+
+    requestNextFrame(() => requestNextFrame(scrollToRequestedBullet));
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [scrollRequest?.bulletIndex, scrollRequest?.requestId]);
 
   function setHighlightRef(commentId: string, refKey: string, element: HTMLElement | null) {
     let commentHighlightRefs = highlightRefs.current.get(commentId);
@@ -957,30 +1154,35 @@ function ResumeReviewSurface({
       </div>
 
       <aside className="resume-review-margin" ref={marginRef} aria-label="Resume review comments">
-        {activeComment ? (
-          <article
-            className={`resume-review-comment-card resume-review-comment-card--expanded${
-              isActiveCommentMeasured ? "" : " resume-review-comment-card--measuring"
-            }`}
-            data-review-tone={activeComment.colorIndex}
-            id={`resume-review-comment-${activeComment.id}`}
-            ref={(element) => setCardRef(activeComment.id, element)}
-            style={{ insetBlockStart: `${activeCommentTop ?? 0}px` }}
-          >
-            <button
-              aria-expanded
-              className="resume-review-comment-card__toggle"
-              type="button"
-              onClick={() => onCommentToggle(activeComment.id)}
-            >
-              <span className="resume-review-comment-card__marker" aria-hidden="true" />
-              <span className="resume-review-comment-card__heading">
-                <strong>{activeComment.ordinal}. {activeComment.groupLabel}</strong>
-              </span>
-              <ChevronDown className="resume-review-comment-card__chevron" size={16} aria-hidden="true" />
-            </button>
-            <p className="resume-review-comment-card__body">{activeComment.text}</p>
-          </article>
+        {comments.length > 0 ? (
+          comments.map((comment) => {
+            const commentTop = layout.positions[comment.id];
+            const isExpanded = comment.id === activeComment?.id;
+
+            return (
+              <article
+                className={`resume-review-comment-card${isExpanded ? " resume-review-comment-card--expanded" : ""}${
+                  commentTop === undefined ? " resume-review-comment-card--measuring" : ""
+                }`}
+                data-review-tone={comment.colorIndex}
+                id={`resume-review-comment-${comment.id}`}
+                key={comment.id}
+                ref={(element) => setCardRef(comment.id, element)}
+                style={{ insetBlockStart: `${commentTop ?? 0}px` }}
+              >
+                <div className="resume-review-comment-card__header">
+                  <span className="resume-review-comment-card__marker" aria-hidden="true" />
+                  <span className="resume-review-comment-card__heading">
+                    <strong>{comment.groupLabel}</strong>
+                  </span>
+                  {comment.metricValue !== null ? (
+                    <span className="resume-review-comment-card__score">{comment.metricValue}</span>
+                  ) : null}
+                </div>
+                <p className="resume-review-comment-card__body">{comment.text}</p>
+              </article>
+            );
+          })
         ) : comments.length === 0 ? (
           <div className="resume-review-empty">
             <p>No comments yet.</p>
@@ -992,27 +1194,42 @@ function ResumeReviewSurface({
   );
 }
 
+function getResumeReviewScrollElement(element: HTMLElement) {
+  return element.closest<HTMLElement>(".text-mode-panel__body");
+}
+
 function ResumeReviewDocument({
-  comments,
+  bulletRanges,
+  commentCards,
   expandedCommentId,
-  onCommentToggle,
+  highlightComments,
+  onBulletClick,
+  onBulletHover,
   onHighlightClick,
+  scrollRequest,
   text
 }: {
-  comments: ResumeReviewComment[];
+  bulletRanges: ResumeReviewBulletRange[];
+  commentCards: ResumeReviewComment[];
   expandedCommentId: string | null;
-  onCommentToggle: (commentId: string) => void;
+  highlightComments: ResumeReviewComment[];
+  onBulletClick: (bulletIndex: number) => void;
+  onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
+  scrollRequest: ResumeReviewScrollRequest | null;
   text: string;
 }) {
-  const segments = useMemo(() => getResumeTextSegments(text, comments), [comments, text]);
+  const segments = useMemo(
+    () => getResumeTextSegments(text, highlightComments, bulletRanges),
+    [bulletRanges, highlightComments, text]
+  );
 
   return (
     <ResumeReviewSurface
-      comments={comments}
+      comments={commentCards}
       contentClassName="resume-review-raw-content"
       expandedCommentId={expandedCommentId}
-      onCommentToggle={onCommentToggle}
+      scrollRequest={scrollRequest}
     >
       {(setHighlightRef, setClickedHighlightRef) => (
         <pre className="resume-review-text">
@@ -1021,6 +1238,8 @@ function ResumeReviewDocument({
               expandedCommentId={expandedCommentId}
               highlightKey={`raw-segment-${segmentIndex}`}
               key={`raw-segment-${segmentIndex}`}
+              onBulletClick={onBulletClick}
+              onBulletHover={onBulletHover}
               onHighlightClick={onHighlightClick}
               segment={segment}
               setClickedHighlightRef={setClickedHighlightRef}
@@ -1035,19 +1254,27 @@ function ResumeReviewDocument({
 
 function ResumeFormattedReviewDocument({
   beforeContent,
-  comments,
+  bulletRanges,
+  commentCards,
   document,
   expandedCommentId,
-  onCommentToggle,
+  highlightComments,
+  onBulletClick,
+  onBulletHover,
   onHighlightClick,
+  scrollRequest,
   text
 }: {
   beforeContent?: ReactNode;
-  comments: ResumeReviewComment[];
+  bulletRanges: ResumeReviewBulletRange[];
+  commentCards: ResumeReviewComment[];
   document: ParsedResumeDocument;
   expandedCommentId: string | null;
-  onCommentToggle: (commentId: string) => void;
+  highlightComments: ResumeReviewComment[];
+  onBulletClick: (bulletIndex: number) => void;
+  onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
+  scrollRequest: ResumeReviewScrollRequest | null;
   text: string;
 }) {
   const locator = createResumeTextLocator(text);
@@ -1055,27 +1282,57 @@ function ResumeFormattedReviewDocument({
 
   return (
     <ResumeReviewSurface
-      comments={comments}
+      comments={commentCards}
       contentClassName="resume-review-formatted-content"
       expandedCommentId={expandedCommentId}
-      onCommentToggle={onCommentToggle}
+      scrollRequest={scrollRequest}
     >
       {(setHighlightRef, setClickedHighlightRef) => {
-        function renderText(value: string, key: string) {
+        function getRenderedText(value: string, key: string) {
           const range = locator.locate(value);
-          const segments = getResumeTextSegmentsForRange(value, range, comments, anchoredCommentIds);
+          const segments = getResumeTextSegmentsForRange(value, range, highlightComments, anchoredCommentIds);
 
-          return segments.map((segment, segmentIndex) => (
-            <ResumeReviewTextSegment
-              expandedCommentId={expandedCommentId}
-              highlightKey={`${key}-${segmentIndex}`}
-              key={`${key}-${segmentIndex}`}
-              onHighlightClick={onHighlightClick}
-              segment={segment}
-              setClickedHighlightRef={setClickedHighlightRef}
-              setHighlightRef={setHighlightRef}
-            />
-          ));
+          return {
+            nodes: renderReviewTextSegments({
+              expandedCommentId,
+              keyPrefix: key,
+              onBulletClick,
+              onBulletHover,
+              onHighlightClick,
+              segments,
+              setClickedHighlightRef,
+              setHighlightRef
+            }),
+            range
+          };
+        }
+
+        function renderText(value: string, key: string) {
+          return getRenderedText(value, key).nodes;
+        }
+
+        function getRenderedBullet(value: string, key: string) {
+          const range = locator.locate(value);
+          const bulletIndex = getResumeBulletIndexForRange(range, bulletRanges);
+          const segments = getResumeTextSegmentsForRange(value, range, highlightComments, anchoredCommentIds).map((segment) => ({
+            ...segment,
+            bulletIndex
+          }));
+
+          return {
+            bulletIndex,
+            nodes: renderReviewTextSegments({
+              expandedCommentId,
+              isBulletHoverManagedByParent: bulletIndex !== null,
+              keyPrefix: key,
+              onBulletClick,
+              onBulletHover,
+              onHighlightClick,
+              segments,
+              setClickedHighlightRef,
+              setHighlightRef
+            })
+          };
         }
 
         return (
@@ -1105,11 +1362,30 @@ function ResumeFormattedReviewDocument({
                         ) : null}
                         {block.bullets.length > 0 ? (
                           <ul>
-                            {block.bullets.map((bullet, bulletIndex) => (
-                              <li key={`${blockKey}-bullet-${bulletIndex}`}>
-                                {renderText(bullet, `${blockKey}-bullet-${bulletIndex}`)}
-                              </li>
-                            ))}
+                            {block.bullets.map((bullet, bulletIndex) => {
+                              const renderedBullet = getRenderedBullet(bullet, `${blockKey}-bullet-${bulletIndex}`);
+
+                              return (
+                                <li
+                                  className={
+                                    renderedBullet.bulletIndex === null ? undefined : "resume-review-formatted-bullet"
+                                  }
+                                  data-resume-bullet-index={renderedBullet.bulletIndex ?? undefined}
+                                  key={`${blockKey}-bullet-${bulletIndex}`}
+                                  onClickCapture={(event) => {
+                                    if (renderedBullet.bulletIndex !== null) {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      onBulletClick(renderedBullet.bulletIndex);
+                                    }
+                                  }}
+                                  onMouseEnter={() => onBulletHover(renderedBullet.bulletIndex)}
+                                  onMouseLeave={() => onBulletHover(null)}
+                                >
+                                  {renderedBullet.nodes}
+                                </li>
+                              );
+                            })}
                           </ul>
                         ) : null}
                       </div>
@@ -1136,9 +1412,49 @@ function ResumeFormattedReviewDocument({
   );
 }
 
+function renderReviewTextSegments({
+  expandedCommentId,
+  isBulletHoverManagedByParent = false,
+  keyPrefix,
+  onBulletClick,
+  onBulletHover,
+  onHighlightClick,
+  segments,
+  setClickedHighlightRef,
+  setHighlightRef
+}: {
+  expandedCommentId: string | null;
+  isBulletHoverManagedByParent?: boolean;
+  keyPrefix: string;
+  onBulletClick: (bulletIndex: number) => void;
+  onBulletHover: (bulletIndex: number | null) => void;
+  onHighlightClick: (commentId: string) => void;
+  segments: ResumeTextSegment[];
+  setClickedHighlightRef: SetResumeReviewClickedHighlightRef;
+  setHighlightRef: SetResumeReviewHighlightRef;
+}) {
+  return segments.map((segment, segmentIndex) => (
+    <ResumeReviewTextSegment
+      expandedCommentId={expandedCommentId}
+      highlightKey={`${keyPrefix}-${segmentIndex}`}
+      isBulletHoverManagedByParent={isBulletHoverManagedByParent}
+      key={`${keyPrefix}-${segmentIndex}`}
+      onBulletClick={onBulletClick}
+      onBulletHover={onBulletHover}
+      onHighlightClick={onHighlightClick}
+      segment={segment}
+      setClickedHighlightRef={setClickedHighlightRef}
+      setHighlightRef={setHighlightRef}
+    />
+  ));
+}
+
 function ResumeReviewTextSegment({
   expandedCommentId,
   highlightKey,
+  isBulletHoverManagedByParent = false,
+  onBulletClick,
+  onBulletHover,
   onHighlightClick,
   segment,
   setClickedHighlightRef,
@@ -1146,47 +1462,117 @@ function ResumeReviewTextSegment({
 }: {
   expandedCommentId: string | null;
   highlightKey: string;
+  isBulletHoverManagedByParent?: boolean;
+  onBulletClick: (bulletIndex: number) => void;
+  onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
   segment: ResumeTextSegment;
   setClickedHighlightRef: SetResumeReviewClickedHighlightRef;
   setHighlightRef: SetResumeReviewHighlightRef;
 }) {
   if (segment.comments.length === 0) {
-    return <span>{segment.text}</span>;
+    if (segment.bulletIndex === null) {
+      return <span>{segment.text}</span>;
+    }
+
+    const bulletIndex = segment.bulletIndex;
+
+    return (
+      <span
+        className="resume-review-bullet-text"
+        data-resume-bullet-index={bulletIndex}
+        role="button"
+        tabIndex={0}
+        onClick={() => onBulletClick(bulletIndex)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onBulletClick(bulletIndex);
+          }
+        }}
+        onMouseEnter={isBulletHoverManagedByParent ? undefined : () => onBulletHover(bulletIndex)}
+        onMouseLeave={isBulletHoverManagedByParent ? undefined : () => onBulletHover(null)}
+      >
+        {segment.text}
+      </span>
+    );
   }
 
-  const comment = segment.comments.find((candidate) => candidate.id === expandedCommentId) ?? segment.comments[0];
+  const comment =
+    segment.comments.find((candidate) => candidate.id === expandedCommentId) ??
+    segment.comments.find((candidate) => candidate.isHoverPreview) ??
+    segment.comments[0];
   const isExpanded = comment.id === expandedCommentId;
-  const registeredCommentIds = new Set(segment.anchorCommentIds);
+  const registeredCommentIds = new Set([
+    ...segment.anchorCommentIds,
+    ...segment.comments.map((segmentComment) => segmentComment.id)
+  ]);
 
   if (isExpanded) {
     registeredCommentIds.add(comment.id);
   }
 
   return (
-    <button
+    <span
       aria-controls={isExpanded ? `resume-review-comment-${comment.id}` : undefined}
       aria-expanded={isExpanded}
       className={`resume-review-highlight${isExpanded ? " resume-review-highlight--expanded" : ""}`}
-      data-review-tone={comment.colorIndex}
+      data-review-tone={comment.isHoverPreview ? "hover" : comment.colorIndex}
+      data-resume-bullet-index={segment.bulletIndex ?? undefined}
       ref={(element) => {
         for (const commentId of registeredCommentIds) {
           setHighlightRef(commentId, highlightKey, element);
         }
       }}
+      role="button"
+      tabIndex={0}
       title={comment.text}
-      type="button"
+      onClickCapture={(event) => {
+        if (segment.bulletIndex !== null) {
+          event.preventDefault();
+          event.stopPropagation();
+          onBulletClick(segment.bulletIndex);
+        }
+      }}
       onClick={(event) => {
+        event.stopPropagation();
         setClickedHighlightRef(comment.id, event.currentTarget);
         onHighlightClick(comment.id);
       }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+
+        event.preventDefault();
+
+        if (segment.bulletIndex !== null) {
+          onBulletClick(segment.bulletIndex);
+          return;
+        }
+
+        setClickedHighlightRef(comment.id, event.currentTarget);
+        onHighlightClick(comment.id);
+      }}
+      onMouseEnter={
+        isBulletHoverManagedByParent || segment.bulletIndex === null
+          ? undefined
+          : () => onBulletHover(segment.bulletIndex)
+      }
+      onMouseLeave={
+        isBulletHoverManagedByParent || segment.bulletIndex === null ? undefined : () => onBulletHover(null)
+      }
     >
       {segment.text}
-    </button>
+    </span>
   );
 }
 
-function getResumeTextSegments(text: string, comments: ResumeReviewComment[]): ResumeTextSegment[] {
+function getResumeTextSegments(
+  text: string,
+  comments: ResumeReviewComment[],
+  bulletRanges: ResumeReviewBulletRange[] = []
+): ResumeTextSegment[] {
   const normalizedComments = [...comments]
     .map((comment) => ({
       ...comment,
@@ -1196,7 +1582,7 @@ function getResumeTextSegments(text: string, comments: ResumeReviewComment[]): R
     .filter((comment) => comment.end > comment.start)
     .sort((firstComment, secondComment) => firstComment.start - secondComment.start || firstComment.end - secondComment.end);
 
-  return getResumeTextSegmentsFromLocalComments(text, normalizedComments, new Set<string>());
+  return getResumeTextSegmentsFromLocalComments(text, normalizedComments, new Set<string>(), bulletRanges);
 }
 
 function getResumeTextSegmentsForRange(
@@ -1206,7 +1592,7 @@ function getResumeTextSegmentsForRange(
   anchoredCommentIds: Set<string>
 ): ResumeTextSegment[] {
   if (!range) {
-    return [{ anchorCommentIds: [], comments: [], text }];
+    return [{ anchorCommentIds: [], bulletIndex: null, comments: [], text }];
   }
 
   const rangeLength = Math.max(1, range.end - range.start);
@@ -1239,14 +1625,20 @@ function getResumeTextSegmentsForRange(
 function getResumeTextSegmentsFromLocalComments(
   text: string,
   normalizedComments: ResumeReviewComment[],
-  anchoredCommentIds: Set<string>
+  anchoredCommentIds: Set<string>,
+  bulletRanges: ResumeReviewBulletRange[] = []
 ): ResumeTextSegment[] {
-  if (normalizedComments.length === 0) {
-    return [{ anchorCommentIds: [], comments: [], text }];
+  if (normalizedComments.length === 0 && bulletRanges.length === 0) {
+    return [{ anchorCommentIds: [], bulletIndex: null, comments: [], text }];
   }
 
   const breakpoints = Array.from(
-    new Set([0, text.length, ...normalizedComments.flatMap((comment) => [comment.start, comment.end])])
+    new Set([
+      0,
+      text.length,
+      ...normalizedComments.flatMap((comment) => [comment.start, comment.end]),
+      ...bulletRanges.flatMap((bulletRange) => [bulletRange.start, bulletRange.end])
+    ])
   ).sort((firstBreakpoint, secondBreakpoint) => firstBreakpoint - secondBreakpoint);
   const segments: ResumeTextSegment[] = [];
 
@@ -1269,12 +1661,13 @@ function getResumeTextSegmentsFromLocalComments(
 
     segments.push({
       anchorCommentIds,
+      bulletIndex: getResumeBulletIndexForRange({ start, end }, bulletRanges),
       comments: segmentComments,
       text: text.slice(start, end)
     });
   }
 
-  return segments.length > 0 ? segments : [{ anchorCommentIds: [], comments: [], text }];
+  return segments.length > 0 ? segments : [{ anchorCommentIds: [], bulletIndex: null, comments: [], text }];
 }
 
 function createResumeTextLocator(text: string) {
@@ -1360,6 +1753,33 @@ function normalizeResumeLocatorCharacter(character: string) {
   }
 
   return character;
+}
+
+function getResumeBulletIndexForRange(range: ResumeTextRange | null, bulletRanges: ResumeReviewBulletRange[]) {
+  if (!range) {
+    return null;
+  }
+
+  let bestMatch: ResumeReviewBulletRange | null = null;
+  let bestOverlap = 0;
+
+  for (const bulletRange of bulletRanges) {
+    const overlap = Math.min(range.end, bulletRange.end) - Math.max(range.start, bulletRange.start);
+
+    if (overlap > bestOverlap) {
+      bestMatch = bulletRange;
+      bestOverlap = overlap;
+    }
+  }
+
+  return bestMatch && bestOverlap > 0 ? bestMatch.bulletIndex : null;
+}
+
+function getResumeBulletDisplayStart(text: string, bulletStart: number) {
+  const lineStart = text.lastIndexOf("\n", Math.max(0, bulletStart - 1)) + 1;
+  const linePrefix = text.slice(lineStart, bulletStart);
+
+  return /^[ \t]*[-*•‣▪◦‒–—−]\s*$/u.test(linePrefix) ? lineStart : bulletStart;
 }
 
 function clampResumeTextIndex(index: number, text: string) {

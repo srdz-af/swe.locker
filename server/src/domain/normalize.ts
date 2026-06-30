@@ -1,5 +1,7 @@
 export const LOCAL_OWNER_KEY = "local";
 export const SIMPLIFY_SOURCE_KEY = "simplifyjobs-summer-internships";
+export const SIMPLIFY_INACTIVE_SOURCE_KEY = "simplifyjobs-summer-internships-inactive";
+export const SIMPLIFY_OFF_SEASON_SOURCE_KEY = "simplifyjobs-summer-internships-off-season";
 
 const metadataMarkers = ["🛂", "🇺🇸", "🔒", "🔥", "🎓"];
 

@@ -1,12 +1,18 @@
 import { prisma } from "../db/prisma.js";
 import { HttpError } from "../errors.js";
+import type { SourceConfig } from "../generated/prisma/client.js";
 import { parseSimplifyJobsReadme } from "../parser/simplifyJobsParser.js";
 import { toFetchRunDto, toSourceConfigDto } from "./mappers.js";
-import { ensureSourceConfig } from "./sourceConfigService.js";
+import { ensureSourceConfigs } from "./sourceConfigService.js";
 
-type RefreshResult = {
+type SourceRefreshResult = {
   sourceConfig: ReturnType<typeof toSourceConfigDto>;
   fetchRun: ReturnType<typeof toFetchRunDto>;
+};
+
+type RefreshResult = {
+  sourceConfigs: Array<ReturnType<typeof toSourceConfigDto>>;
+  fetchRuns: Array<ReturnType<typeof toFetchRunDto>>;
 };
 
 let refreshInFlight: Promise<RefreshResult> | null = null;
@@ -26,20 +32,52 @@ export async function refreshSource() {
 }
 
 export async function refreshSourceIfEmpty() {
-  const sourceConfig = await ensureSourceConfig();
-  const postingCount = await prisma.jobPosting.count({
-    where: {
-      sourceConfigId: sourceConfig.id
-    }
-  });
+  const sourceConfigs = await ensureSourceConfigs();
+  const sourceStates = await Promise.all(
+    sourceConfigs.map(async (sourceConfig) => ({
+      postingCount: await prisma.jobPosting.count({
+        where: {
+          sourceConfigId: sourceConfig.id
+        }
+      }),
+      successfulFetchCount: await prisma.fetchRun.count({
+        where: {
+          sourceConfigId: sourceConfig.id,
+          status: "SUCCESS"
+        }
+      })
+    }))
+  );
 
-  if (postingCount === 0) {
+  if (sourceStates.some((sourceState) => sourceState.postingCount === 0 && sourceState.successfulFetchCount === 0)) {
     await refreshSource();
   }
 }
 
 async function runRefresh(): Promise<RefreshResult> {
-  const sourceConfig = await ensureSourceConfig();
+  const sourceConfigs = (await ensureSourceConfigs()).filter((sourceConfig) => sourceConfig.enabled);
+  const results: SourceRefreshResult[] = [];
+  const errors: string[] = [];
+
+  for (const sourceConfig of sourceConfigs) {
+    try {
+      results.push(await refreshSingleSource(sourceConfig));
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `Refresh failed for ${sourceConfig.displayName}.`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new HttpError(500, errors.join(" "));
+  }
+
+  return {
+    sourceConfigs: results.map((result) => result.sourceConfig),
+    fetchRuns: results.map((result) => result.fetchRun)
+  };
+}
+
+async function refreshSingleSource(sourceConfig: SourceConfig): Promise<SourceRefreshResult> {
   const fetchRun = await prisma.fetchRun.create({
     data: {
       sourceConfigId: sourceConfig.id,

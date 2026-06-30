@@ -31,6 +31,7 @@ import type {
   ApplicationDto,
   ApplicationStatus,
   JobPostingDto,
+  SourceConfigDto,
   UpdateApplicationDetailsRequest
 } from "../../shared/src/index";
 import {
@@ -43,6 +44,7 @@ import {
   followCompany,
   getApplicationActivity,
   getPostings,
+  getSourceConfigs,
   listResumeRuns,
   listApplications,
   updateApplicationDetails,
@@ -78,6 +80,8 @@ import { getApplicationStatusLabel } from "./utils/format";
 import "@carbon/charts-react/styles.css";
 import "./styles.scss";
 
+const allPostingSourcesValue = "all";
+
 function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") {
     return "light";
@@ -96,6 +100,7 @@ function App() {
   const didLoadInitialSnapshot = useRef(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
   const [postings, setPostings] = useState<JobPostingDto[]>([]);
+  const [sourceConfigs, setSourceConfigs] = useState<SourceConfigDto[]>([]);
   const [applications, setApplications] = useState<ApplicationDto[]>([]);
   const [activityDays, setActivityDays] = useState<ApplicationActivityDayDto[]>([]);
   const [resumeRuns, setResumeRuns] = useState<ResumeGraderRun[]>([]);
@@ -108,6 +113,7 @@ function App() {
   const [isManualApplicationModalOpen, setIsManualApplicationModalOpen] = useState(false);
   const [manualApplicationForm, setManualApplicationForm] = useState<ManualApplicationFormState>(initialManualApplicationForm);
   const [search, setSearch] = useState("");
+  const [selectedSourceId, setSelectedSourceId] = useState(allPostingSourcesValue);
   const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
   const [location, setLocation] = useState("");
   const [tagFilters, setTagFilters] = useState<PostingTagFilter[]>([]);
@@ -127,13 +133,15 @@ function App() {
 
   const loadDashboardSnapshot = useCallback(async () => {
     setError(null);
-    const [postingList, applicationList, activityList, persistedResumeRuns] = await Promise.all([
+    const [sourceConfigList, postingList, applicationList, activityList, persistedResumeRuns] = await Promise.all([
+      getSourceConfigs(),
       getPostings(),
       listApplications(),
       getApplicationActivity(),
       listResumeRuns()
     ]);
 
+    setSourceConfigs(sourceConfigList);
     setPostings(postingList);
     setApplications(applicationList);
     setActivityDays(activityList);
@@ -158,13 +166,33 @@ function App() {
       .finally(() => setIsLoading(false));
   }, [loadDashboardSnapshot]);
 
+  useEffect(() => {
+    setSelectedSourceId((currentSourceId) => {
+      if (
+        currentSourceId === allPostingSourcesValue ||
+        sourceConfigs.some((sourceConfig) => sourceConfig.id === currentSourceId)
+      ) {
+        return currentSourceId;
+      }
+
+      return allPostingSourcesValue;
+    });
+  }, [sourceConfigs]);
+
+  const sourceFilteredPostings = useMemo(
+    () =>
+      selectedSourceId === allPostingSourcesValue
+        ? postings
+        : postings.filter((posting) => posting.sourceConfigId === selectedSourceId),
+    [postings, selectedSourceId]
+  );
   const categories = useMemo(
-    () => Array.from(new Set(postings.map((posting) => posting.category))).sort(),
-    [postings]
+    () => Array.from(new Set(sourceFilteredPostings.map((posting) => posting.category))).sort(),
+    [sourceFilteredPostings]
   );
   const visiblePostings = useMemo(
     () =>
-      postings.filter((posting) =>
+      sourceFilteredPostings.filter((posting) =>
         matchesPostingFilters(posting, {
           search: deferredSearch,
           categories: categoryFilters,
@@ -174,8 +202,19 @@ function App() {
           citizenship
         })
       ),
-    [categoryFilters, citizenship, deferredLocation, deferredSearch, postings, sponsorship, tagFilters]
+    [categoryFilters, citizenship, deferredLocation, deferredSearch, sourceFilteredPostings, sponsorship, tagFilters]
   );
+
+  useEffect(() => {
+    setSelectedPostingId((currentPostingId) => {
+      if (currentPostingId && sourceFilteredPostings.some((posting) => posting.id === currentPostingId)) {
+        return currentPostingId;
+      }
+
+      return sourceFilteredPostings[0]?.id ?? null;
+    });
+  }, [sourceFilteredPostings]);
+
   const selectedPosting = useMemo(
     () => postings.find((posting) => posting.id === selectedPostingId) ?? null,
     [postings, selectedPostingId]
@@ -197,7 +236,7 @@ function App() {
         return {
           title: "Postings",
           metricLabel: "Shown",
-          metricValue: `${visiblePostings.length}/${postings.length}`
+          metricValue: `${visiblePostings.length}/${sourceFilteredPostings.length}`
         };
       }
 
@@ -225,7 +264,7 @@ function App() {
         metricValue: String(postings.length)
       };
     },
-    [applications.length, postings.length, resumeRuns, selectedTabIndex, visiblePostings.length]
+    [applications.length, postings.length, resumeRuns, selectedTabIndex, sourceFilteredPostings.length, visiblePostings.length]
   );
 
   useEffect(() => {
@@ -583,6 +622,25 @@ function App() {
                         <Tile className="filters-tile">
                           <h2>Filters</h2>
                           <div className="filters-stack">
+                            <Select
+                              id="posting-source"
+                              labelText="Source"
+                              size="sm"
+                              value={selectedSourceId}
+                              onChange={(event) => {
+                                setSelectedSourceId(event.target.value);
+                                setCategoryFilters([]);
+                              }}
+                            >
+                              <SelectItem text="All sources" value={allPostingSourcesValue} />
+                              {sourceConfigs.map((sourceConfig) => (
+                                <SelectItem
+                                  key={sourceConfig.id}
+                                  text={sourceConfig.displayName}
+                                  value={sourceConfig.id}
+                                />
+                              ))}
+                            </Select>
                             <TextInput
                               id="posting-search"
                               labelText="Search"
@@ -653,7 +711,7 @@ function App() {
                             <div>
                               <h2>Latest postings</h2>
                               <p>
-                                {visiblePostings.length} of {postings.length} postings shown
+                                {visiblePostings.length} of {sourceFilteredPostings.length} postings shown
                               </p>
                             </div>
                           </div>

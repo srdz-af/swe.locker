@@ -21,6 +21,7 @@ export type SourceConfigDto = {
 
 export type JobPostingDto = {
   id: string;
+  sourceConfigId: string;
   season: string;
   category: string;
   company: string;
@@ -113,6 +114,34 @@ export type ResumeGraderCommentGroupDto = {
   comments: ResumeGraderCommentDto[];
 };
 
+export type ResumeGraderBulletMetricDto = {
+  label: string;
+  value: number;
+  comments: ResumeGraderCommentDto[];
+};
+
+export type ResumeTextRangeDto = {
+  start: number;
+  end: number;
+};
+
+export type ResumeGraderBulletGradeDto = {
+  id: string;
+  label: string;
+  grade: number;
+  range: ResumeTextRangeDto;
+  bulletIndex: number;
+  metrics: ResumeGraderBulletMetricDto[];
+};
+
+export type ResumeGraderItemDto = {
+  id: string;
+  title: ResumeTextRangeDto | null;
+  description: ResumeTextRangeDto | null;
+  date: ResumeTextRangeDto | null;
+  bullets: ResumeGraderBulletGradeDto[];
+};
+
 export type ResumeRunDto = {
   id: string;
   sourceName: string;
@@ -122,6 +151,7 @@ export type ResumeRunDto = {
   verdict: string | null;
   metrics: ResumeGraderMetricDto[];
   comments: ResumeGraderCommentGroupDto[];
+  resumeItems: ResumeGraderItemDto[];
   createdAt: string;
 };
 

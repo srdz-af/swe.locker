@@ -169,6 +169,7 @@ model ResumeRun {
   verdict      String?
   metrics      String        @default("[]")
   comments     String        @default("[]")
+  bulletGrades String        @default("[]")
   createdAt    DateTime      @default(now())
   applications Application[]
 

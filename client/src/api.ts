@@ -21,6 +21,10 @@ export async function getSourceConfig() {
   return request<SourceConfigDto>("/source-config");
 }
 
+export async function getSourceConfigs() {
+  return request<SourceConfigDto[]>("/source-configs");
+}
+
 export async function getPostings() {
   return request<JobPostingDto[]>("/postings");
 }

@@ -5,6 +5,39 @@ type ApplicationWithEvents = Application & {
   events?: ApplicationEvent[];
 };
 
+type ParsedResumeTextRange = {
+  start: number;
+  end: number;
+};
+
+type ParsedResumeComment = ParsedResumeTextRange & {
+  id: string;
+  text: string;
+};
+
+type ParsedResumeBulletMetric = {
+  label: string;
+  value: number;
+  comments: ParsedResumeComment[];
+};
+
+type ParsedResumeBulletGrade = {
+  id: string;
+  label: string;
+  grade: number;
+  range: ParsedResumeTextRange;
+  bulletIndex: number;
+  metrics: ParsedResumeBulletMetric[];
+};
+
+type ParsedResumeItem = {
+  id: string;
+  title: ParsedResumeTextRange | null;
+  description: ParsedResumeTextRange | null;
+  date: ParsedResumeTextRange | null;
+  bullets: ParsedResumeBulletGrade[];
+};
+
 export function toSourceConfigDto(source: SourceConfig) {
   return {
     id: source.id,
@@ -75,16 +108,19 @@ function toApplicationEventDto(event: ApplicationEvent) {
 
 export function toResumeRunDto(run: ResumeRun) {
   const metrics = parseResumeMetrics(run.metrics);
+  const resumeItems = parseResumeItems((run as ResumeRun & { bulletGrades?: unknown }).bulletGrades);
+  const bulletGrades = flattenResumeItemBulletGrades(resumeItems);
 
   return {
     id: run.id,
     sourceName: run.sourceName,
     parsedText: run.parsedText,
-    grade: calculateResumeGrade(metrics),
+    grade: calculateResumeGradeFromBulletGrades(bulletGrades) ?? run.grade ?? calculateResumeGrade(metrics),
     tier: run.tier,
     verdict: run.verdict,
     metrics,
     comments: parseResumeComments((run as ResumeRun & { comments?: unknown }).comments),
+    resumeItems,
     createdAt: run.createdAt.toISOString()
   };
 }
@@ -101,6 +137,7 @@ export function toJobPostingDto(
 
   return {
     id: posting.id,
+    sourceConfigId: posting.sourceConfigId,
     season: posting.season,
     category: posting.category,
     company: posting.company,
@@ -297,6 +334,291 @@ function parseApplicationInterviewDates(value: unknown) {
       };
     })
     .filter((interviewDate): interviewDate is { label: string; date: string } => Boolean(interviewDate));
+}
+
+function parseResumeItems(value: unknown): ParsedResumeItem[] {
+  const parsedValue = parseJson(value);
+
+  if (!Array.isArray(parsedValue)) {
+    return [];
+  }
+
+  if (parsedValue.some(isResumeItemLike)) {
+    return parsedValue
+      .map((item, itemIndex) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const candidateItem = item as {
+          id?: unknown;
+          title?: unknown;
+          description?: unknown;
+          date?: unknown;
+          bullets?: unknown;
+        };
+
+        if (typeof candidateItem.id !== "string" || !Array.isArray(candidateItem.bullets)) {
+          return null;
+        }
+
+        const bullets = candidateItem.bullets
+          .map((bullet) => parseResumeBulletGrade(bullet))
+          .filter((bullet): bullet is ParsedResumeBulletGrade => Boolean(bullet));
+
+        return {
+          id: candidateItem.id || `resume-item-${itemIndex + 1}`,
+          title: parseResumeTextRange(candidateItem.title),
+          description: parseResumeTextRange(candidateItem.description),
+          date: parseResumeTextRange(candidateItem.date),
+          bullets
+        };
+      })
+      .filter((item): item is ParsedResumeItem => item !== null && item.bullets.length > 0);
+  }
+
+  return convertLegacyResumeBulletGrades(parsedValue);
+}
+
+function isResumeItemLike(value: unknown) {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as { bullets?: unknown }).bullets));
+}
+
+function convertLegacyResumeBulletGrades(value: unknown[]): ParsedResumeItem[] {
+  const items: ParsedResumeItem[] = [];
+  const itemsByKey = new Map<string, ParsedResumeItem>();
+
+  for (const bulletGrade of value) {
+    const bullet = parseLegacyResumeBulletGrade(bulletGrade);
+    if (!bullet) {
+      continue;
+    }
+
+    const legacyCandidate = bulletGrade as { entryTitle?: unknown; sectionTitle?: unknown };
+    const itemKey =
+      typeof legacyCandidate.entryTitle === "string" && legacyCandidate.entryTitle.trim()
+        ? legacyCandidate.entryTitle.trim()
+        : typeof legacyCandidate.sectionTitle === "string" && legacyCandidate.sectionTitle.trim()
+          ? legacyCandidate.sectionTitle.trim()
+          : `legacy-item-${items.length + 1}`;
+    let item = itemsByKey.get(itemKey);
+
+    if (!item) {
+      item = {
+        id: `legacy-resume-item-${items.length + 1}`,
+        title: null,
+        description: null,
+        date: null,
+        bullets: []
+      };
+      itemsByKey.set(itemKey, item);
+      items.push(item);
+    }
+
+    item.bullets.push(bullet);
+  }
+
+  return items;
+}
+
+function parseResumeBulletGrade(value: unknown): ParsedResumeBulletGrade | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidateBullet = value as {
+    id?: unknown;
+    label?: unknown;
+    grade?: unknown;
+    range?: unknown;
+    bulletIndex?: unknown;
+    metrics?: unknown;
+  };
+
+  if (
+    typeof candidateBullet.id !== "string" ||
+    typeof candidateBullet.label !== "string" ||
+    typeof candidateBullet.bulletIndex !== "number" ||
+    !Number.isInteger(candidateBullet.bulletIndex) ||
+    !Array.isArray(candidateBullet.metrics)
+  ) {
+    return null;
+  }
+
+  const range = parseResumeTextRange(candidateBullet.range);
+  if (!range) {
+    return null;
+  }
+
+  const metrics = parseResumeBulletMetrics(candidateBullet.metrics);
+  const computedGrade = calculateResumeGrade(metrics);
+  const grade =
+    typeof candidateBullet.grade === "number" &&
+    Number.isInteger(candidateBullet.grade) &&
+    candidateBullet.grade >= 0 &&
+    candidateBullet.grade <= 100
+      ? candidateBullet.grade
+      : computedGrade;
+
+  if (grade === null) {
+    return null;
+  }
+
+  return {
+    id: candidateBullet.id,
+    label: candidateBullet.label,
+    grade,
+    range,
+    bulletIndex: candidateBullet.bulletIndex,
+    metrics
+  };
+}
+
+function parseLegacyResumeBulletGrade(value: unknown): ParsedResumeBulletGrade | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidateBullet = value as {
+    id?: unknown;
+    label?: unknown;
+    grade?: unknown;
+    start?: unknown;
+    end?: unknown;
+    bulletIndex?: unknown;
+    metrics?: unknown;
+  };
+
+  if (
+    typeof candidateBullet.id !== "string" ||
+    typeof candidateBullet.label !== "string" ||
+    typeof candidateBullet.start !== "number" ||
+    typeof candidateBullet.end !== "number" ||
+    typeof candidateBullet.bulletIndex !== "number" ||
+    !Number.isInteger(candidateBullet.start) ||
+    !Number.isInteger(candidateBullet.end) ||
+    !Number.isInteger(candidateBullet.bulletIndex) ||
+    !Array.isArray(candidateBullet.metrics)
+  ) {
+    return null;
+  }
+
+  const metrics = parseResumeBulletMetrics(candidateBullet.metrics);
+  const computedGrade = calculateResumeGrade(metrics);
+  const grade =
+    typeof candidateBullet.grade === "number" &&
+    Number.isInteger(candidateBullet.grade) &&
+    candidateBullet.grade >= 0 &&
+    candidateBullet.grade <= 100
+      ? candidateBullet.grade
+      : computedGrade;
+
+  if (grade === null) {
+    return null;
+  }
+
+  return {
+    id: candidateBullet.id,
+    label: candidateBullet.label,
+    grade,
+    range: {
+      start: candidateBullet.start,
+      end: candidateBullet.end
+    },
+    bulletIndex: candidateBullet.bulletIndex,
+    metrics
+  };
+}
+
+function parseResumeBulletMetrics(value: unknown): ParsedResumeBulletMetric[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((metric) => {
+      if (!metric || typeof metric !== "object") {
+        return null;
+      }
+
+      const candidateMetric = metric as { label?: unknown; value?: unknown; comments?: unknown };
+      if (
+        typeof candidateMetric.label !== "string" ||
+        typeof candidateMetric.value !== "number" ||
+        !Number.isFinite(candidateMetric.value) ||
+        !Array.isArray(candidateMetric.comments)
+      ) {
+        return null;
+      }
+
+      const comments = candidateMetric.comments
+        .map((comment) => {
+          if (!comment || typeof comment !== "object") {
+            return null;
+          }
+
+          const candidateComment = comment as { id?: unknown; start?: unknown; end?: unknown; text?: unknown };
+          if (
+            typeof candidateComment.id !== "string" ||
+            typeof candidateComment.start !== "number" ||
+            typeof candidateComment.end !== "number" ||
+            typeof candidateComment.text !== "string" ||
+            !Number.isInteger(candidateComment.start) ||
+            !Number.isInteger(candidateComment.end)
+          ) {
+            return null;
+          }
+
+          return {
+            id: candidateComment.id,
+            start: candidateComment.start,
+            end: candidateComment.end,
+            text: candidateComment.text
+          };
+        })
+        .filter((comment): comment is ParsedResumeComment => Boolean(comment));
+
+      return {
+        label: candidateMetric.label,
+        value: candidateMetric.value,
+        comments
+      };
+    })
+    .filter((metric): metric is ParsedResumeBulletMetric => Boolean(metric));
+}
+
+function parseResumeTextRange(value: unknown): ParsedResumeTextRange | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const range = value as { start?: unknown; end?: unknown };
+  if (
+    typeof range.start !== "number" ||
+    typeof range.end !== "number" ||
+    !Number.isInteger(range.start) ||
+    !Number.isInteger(range.end)
+  ) {
+    return null;
+  }
+
+  return {
+    start: range.start,
+    end: range.end
+  };
+}
+
+function flattenResumeItemBulletGrades(resumeItems: ParsedResumeItem[]) {
+  return resumeItems.flatMap((item) => item.bullets);
+}
+
+function calculateResumeGradeFromBulletGrades(bulletGrades: Array<{ grade: number }>) {
+  if (bulletGrades.length === 0) {
+    return null;
+  }
+
+  const total = bulletGrades.reduce((sum, bulletGrade) => sum + bulletGrade.grade, 0);
+  return Math.round(total / bulletGrades.length);
 }
 
 function parseJson(value: unknown) {

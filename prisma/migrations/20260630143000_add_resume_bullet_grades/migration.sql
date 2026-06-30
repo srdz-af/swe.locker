@@ -1,0 +1,1 @@
+ALTER TABLE "ResumeRun" ADD COLUMN "bulletGrades" TEXT NOT NULL DEFAULT '[]';
