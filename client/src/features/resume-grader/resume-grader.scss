@@ -88,6 +88,8 @@
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.33333;
+  overflow-wrap: anywhere;
+  white-space: normal;
   box-shadow: 0 0.25rem 0.75rem var(--app-shadow);
 }
 
@@ -374,7 +376,7 @@
   white-space: nowrap;
 }
 
-.resume-comments-panel-header span {
+.resume-comments-panel-header > span {
   color: var(--app-text-muted);
   font-size: 0.75rem;
   line-height: 1.33333;
@@ -430,6 +432,9 @@
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.33333;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  white-space: normal;
   box-shadow: 0 0.25rem 0.75rem var(--app-shadow);
 }
 

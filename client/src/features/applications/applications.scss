@@ -158,6 +158,7 @@
 
 .application-notes-toolbar {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   padding: 0.75rem;
   border-block-end: 1px solid var(--app-border);

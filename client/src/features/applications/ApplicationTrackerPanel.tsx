@@ -206,7 +206,7 @@ function ApplicationDetailsPanel({
             kind="ghost"
             renderIcon={Archive}
             size="sm"
-            tooltipPosition="bottom"
+            tooltipPosition="left"
             onClick={() => void handleArchive()}
           />
           <Button
@@ -216,7 +216,7 @@ function ApplicationDetailsPanel({
             kind="danger--ghost"
             renderIcon={TrashCan}
             size="sm"
-            tooltipPosition="bottom"
+            tooltipPosition="left"
             onClick={() => void handleDelete()}
           />
         </div>

@@ -282,11 +282,11 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                       <span
                         className="resume-score-help"
                         tabIndex={0}
-                        aria-label="Measures how good the resume is built against resume best practices, for example use of STAR format"
+                        aria-label="Measures how well the resume is built against resume best practices, for example use of STAR format"
                       >
                         <Help size={14} />
                         <span className="resume-score-tooltip" role="tooltip">
-                          Measures how good the resume is built against resume best practices (e.g. use of STAR format)
+                          Measures how well the resume is built against resume best practices (e.g. use of STAR format)
                         </span>
                       </span>
                     </span>

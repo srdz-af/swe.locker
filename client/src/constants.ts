@@ -3,7 +3,16 @@ import type { ManualApplicationFormState } from "./types/app";
 
 export const themeStorageKey = "swe.locker.theme";
 export const darkPreferenceQuery = "(prefers-color-scheme: dark)";
-export const resumeAcceptedFileTypes = [".pdf", ".txt", ".md", "application/pdf", "text/plain", "text/markdown"];
+export const resumeAcceptedFileTypes = [
+  ".pdf",
+  ".docx",
+  ".txt",
+  ".md",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/markdown"
+];
 export const resumeMaxFileSizeBytes = 10 * 1024 * 1024;
 export const resumeGradeFallbackColor = "#0f62fe";
 
@@ -26,8 +35,8 @@ export function getResumeGradeColor(grade: number | null | undefined) {
 }
 
 export const applicationStatusColors: Record<ApplicationStatus, string> = {
-  APPLIED: "#8a3ffc",
-  INTERVIEW: "#0f62fe",
+  APPLIED: "#1192e8",
+  INTERVIEW: "#8a3ffc",
   OFFER: "#24a148",
   HIRED: "#009d9a",
   REJECTED: "#d02670"

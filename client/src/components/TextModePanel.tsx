@@ -5,7 +5,7 @@ import {
   useRef
 } from "react";
 import ReactMarkdown from "react-markdown";
-import { Tab, TabList, Tabs, TextArea } from "@carbon/react";
+import { TextArea, Toggle } from "@carbon/react";
 
 export type TextMode = "preview" | "raw";
 
@@ -193,16 +193,16 @@ export const TextModePanel = memo(function TextModePanel({
       <div className={headerClasses}>
         {title ? <h3>{title}</h3> : null}
         <div className={["text-mode-panel__actions", actionsClassName].filter(Boolean).join(" ")}>
-          <div className={["text-mode-panel__tabs", tabsClassName].filter(Boolean).join(" ")}>
-            <Tabs
-              selectedIndex={mode === "raw" ? 1 : 0}
-              onChange={({ selectedIndex }) => handleModeChange(selectedIndex === 1 ? "raw" : "preview")}
-            >
-              <TabList aria-label={tabsAriaLabel} size="sm">
-                <Tab>{previewLabel}</Tab>
-                <Tab>{rawLabel}</Tab>
-              </TabList>
-            </Tabs>
+          <div className={["text-mode-panel__toggle", tabsClassName].filter(Boolean).join(" ")}>
+            <Toggle
+              aria-label={tabsAriaLabel}
+              id={`${id}-mode-toggle`}
+              labelA={previewLabel}
+              labelB={rawLabel}
+              size="sm"
+              toggled={mode === "raw"}
+              onToggle={(checked) => handleModeChange(checked ? "raw" : "preview")}
+            />
           </div>
           {tabsHelp ? <div className="text-mode-panel__tabs-help">{tabsHelp}</div> : null}
         </div>

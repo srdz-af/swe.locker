@@ -7,6 +7,8 @@ type PdfTextContentItem = {
   str: string;
 };
 
+const docxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 export function compareResumeRunsByCreatedAtDesc(firstRun: ResumeGraderRun, secondRun: ResumeGraderRun) {
   return getResumeRunTime(secondRun) - getResumeRunTime(firstRun);
 }
@@ -59,6 +61,10 @@ export async function extractResumeText(file: File) {
     return extractPdfResumeText(file);
   }
 
+  if (file.type === docxMimeType || fileName.endsWith(".docx")) {
+    return extractDocxResumeText(file);
+  }
+
   if (
     file.type.startsWith("text/") ||
     fileName.endsWith(".txt") ||
@@ -68,7 +74,7 @@ export async function extractResumeText(file: File) {
     return normalizeExtractedResumeText(await file.text());
   }
 
-  throw new Error("Upload a PDF, TXT, or Markdown resume.");
+  throw new Error("Upload a PDF, DOCX, TXT, or Markdown resume.");
 }
 
 async function extractPdfResumeText(file: File) {
@@ -103,6 +109,15 @@ async function extractPdfResumeText(file: File) {
   }
 
   return normalizeExtractedResumeText(pageTexts.join("\n\n"));
+}
+
+async function extractDocxResumeText(file: File) {
+  const mammoth = await import("mammoth");
+  const result = await mammoth.extractRawText({
+    arrayBuffer: await file.arrayBuffer()
+  });
+
+  return normalizeExtractedResumeText(result.value);
 }
 
 function isPdfTextContentItem(value: unknown): value is PdfTextContentItem {
