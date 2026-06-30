@@ -3,6 +3,7 @@ import { Button, FileUploaderButton, Loading, Modal, Tab, TabList, Tabs, Tile } 
 import { Help, TrashCan } from "@carbon/icons-react";
 import { LineChart, RadarChart, ScaleTypes } from "@carbon/charts-react";
 import type { ChartTabularData, LineChartOptions, RadarChartOptions } from "@carbon/charts-react";
+import { TextModePanel, type TextMode } from "../../components/TextModePanel";
 import { getResumeGradeColor, resumeAcceptedFileTypes } from "../../constants";
 import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatDate } from "../../utils/format";
@@ -11,6 +12,7 @@ import {
   getResumeRunIdFromChartDatum,
   getResumeRunIdFromChartTarget
 } from "./resumeRuns";
+import { parseResumeMarkdownModel, renderResumeMarkdown } from "./resumeMarkdown";
 
 export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   isUploadPending,
@@ -30,6 +32,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
   const [selectedCommentGroupIndex, setSelectedCommentGroupIndex] = useState(0);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [resumeTextViewMode, setResumeTextViewMode] = useState<TextMode>("preview");
   const resumeHistoryChartRef = useRef<HTMLDivElement | null>(null);
   const previousLatestRunIdRef = useRef<string | null>(latestRun?.id ?? null);
   const selectedRun = useMemo(
@@ -41,10 +44,21 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   const selectedGradeColor = useMemo(() => getResumeGradeColor(selectedGrade), [selectedGrade]);
   const hasSelectedGrade = selectedGrade !== null && selectedTier !== null;
   const selectedRunComments = selectedRun?.verdict ?? "Raw text extracted. Grading is not implemented yet.";
-  const resumeCommentGroups = useMemo(() => selectedRun?.comments ?? [], [selectedRun]);
+  const resumeCommentGroups = useMemo(() => (selectedRun ? getResumeCommentGroups(selectedRun) : []), [selectedRun]);
   const safeSelectedCommentGroupIndex =
     selectedCommentGroupIndex < resumeCommentGroups.length ? selectedCommentGroupIndex : 0;
   const selectedCommentGroup = resumeCommentGroups[safeSelectedCommentGroupIndex] ?? null;
+  const resumeMarkdownDocument = useMemo(
+    () => (selectedRun ? parseResumeMarkdownModel(selectedRun.parsedText) : null),
+    [selectedRun?.parsedText]
+  );
+  const resumeFormattedMarkdown = useMemo(
+    () => (resumeMarkdownDocument ? renderResumeMarkdown(resumeMarkdownDocument) : ""),
+    [resumeMarkdownDocument]
+  );
+  const hasResumeReadabilityWarning = resumeMarkdownDocument
+    ? hasResumeMarkdownReadabilityWarning(resumeMarkdownDocument.warnings)
+    : false;
 
   useEffect(() => {
     const previousLatestRunId = previousLatestRunIdRef.current;
@@ -67,6 +81,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   useEffect(() => {
     setSelectedCommentGroupIndex(0);
     setActiveCommentId(null);
+    setResumeTextViewMode("preview");
   }, [selectedRun?.id]);
 
   useEffect(() => {
@@ -303,7 +318,6 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
       <Modal
         className="resume-comments-modal"
         modalHeading="Comments"
-        modalLabel={selectedRun?.sourceName ?? "Resume run"}
         open={isCommentsModalOpen}
         passiveModal
         size="lg"
@@ -311,20 +325,10 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
       >
         {selectedRun ? (
           <div className="resume-comments-layout">
-            <section className="resume-comments-original-panel" aria-label="Original resume">
-              <div className="resume-comments-panel-header">
-                <h3>Original</h3>
-                <span>{selectedRun.parsedText.length} chars</span>
-              </div>
-              <ResumeOriginalText
-                activeCommentId={activeCommentId}
-                comments={selectedCommentGroup?.comments ?? []}
-                text={selectedRun.parsedText}
-              />
-            </section>
-
-            <section className="resume-comments-detail-panel" aria-label="Resume grader comments">
-              {resumeCommentGroups.length > 0 ? (
+            <TextModePanel
+              ariaLabel="Original resume"
+              actionsClassName="resume-comments-panel-actions"
+              afterHeader={
                 <div className="resume-comments-tabs">
                   <Tabs
                     selectedIndex={safeSelectedCommentGroupIndex}
@@ -333,39 +337,97 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                       setActiveCommentId(resumeCommentGroups[selectedIndex]?.comments[0]?.id ?? null);
                     }}
                   >
-                    <TabList aria-label="Resume comment categories" contained size="sm">
+                    <TabList aria-label="Resume comment categories" size="sm">
                       {resumeCommentGroups.map((group) => (
                         <Tab key={group.id}>{group.label}</Tab>
                       ))}
                     </TabList>
                   </Tabs>
-                  {selectedCommentGroup ? (
-                    <div className="resume-comments-tab-panel">
-                      <div className="resume-comments-tab-summary">
-                        <strong>{selectedCommentGroup.scoreLabel}</strong>
-                        <span>
-                          {selectedCommentGroup.comments.length}{" "}
-                          {selectedCommentGroup.comments.length === 1 ? "comment" : "comments"}
-                        </span>
-                      </div>
-                      <div className="resume-comment-list">
-                        {selectedCommentGroup.comments.map((comment) => (
-                          <button
-                            className={`resume-comment-card${
-                              comment.id === activeCommentId ? " resume-comment-card--active" : ""
-                            }`}
-                            key={comment.id}
-                            type="button"
-                            onClick={() => setActiveCommentId(comment.id)}
-                            onFocus={() => setActiveCommentId(comment.id)}
-                            onMouseEnter={() => setActiveCommentId(comment.id)}
-                          >
-                            <span className="resume-comment-card__text">{comment.text}</span>
-                          </button>
-                        ))}
-                      </div>
+                </div>
+              }
+              className={`resume-comments-original-panel${
+                resumeCommentGroups.length > 0 ? " resume-comments-original-panel--with-tabs" : ""
+              }`}
+              footer={<span className="resume-comments-character-count">{selectedRun.parsedText.length} chars</span>}
+              headerClassName="resume-comments-panel-header"
+              id={`resume-text-${selectedRun.id}`}
+              mode={resumeTextViewMode}
+              onModeChange={setResumeTextViewMode}
+              previewBefore={
+                hasResumeReadabilityWarning ? (
+                  <div className="resume-ats-warning">
+                    <strong>ATS readability warning</strong>
+                    <span>Could not confidently recover resume structure from the extracted text.</span>
+                  </div>
+                ) : null
+              }
+              previewBodyClassName="resume-formatted-text"
+              previewLabel="Formatted"
+              previewMarkdown={resumeFormattedMarkdown}
+              rawBodyClassName="resume-original-text-body"
+              rawContent={
+                <ResumeOriginalText
+                  activeCommentId={activeCommentId}
+                  comments={selectedCommentGroup?.comments ?? []}
+                  text={selectedRun.parsedText}
+                />
+              }
+              rawLabel="Raw"
+              scrollKey={`${selectedRun.id}-${safeSelectedCommentGroupIndex}`}
+              title={selectedRun.sourceName}
+              tabsAriaLabel="Resume text view"
+              tabsClassName="resume-text-view-tabs"
+              tabsHelp={
+                <span
+                  className="resume-text-view-help"
+                  tabIndex={0}
+                  aria-label="Only extracted raw text is stored. You can see if ATS readability problems could arise if something looks wrong on the formatted text, and exactly why on the raw"
+                >
+                  <Help size={16} />
+                  <span className="resume-text-view-help-tooltip" role="tooltip">
+                    Only extracted raw text is stored. You can see if ATS readability problems could arise if something
+                    looks wrong on the formatted text, and exactly why on the raw.
+                  </span>
+                </span>
+              }
+            />
+
+            <section className="resume-comments-detail-panel" aria-label="Resume grader comments">
+              {selectedCommentGroup ? (
+                <div className="resume-comments-tab-panel">
+                  <div className="resume-comments-tab-summary">
+                    <strong>{selectedCommentGroup.scoreLabel}</strong>
+                    <span>
+                      {selectedCommentGroup.comments.length}{" "}
+                      {selectedCommentGroup.comments.length === 1 ? "comment" : "comments"}
+                    </span>
+                  </div>
+                  {selectedCommentGroup.comments.length > 0 ? (
+                    <div className="resume-comment-list">
+                      {selectedCommentGroup.comments.map((comment) => (
+                        <button
+                          className={`resume-comment-card${
+                            comment.id === activeCommentId ? " resume-comment-card--active" : ""
+                          }`}
+                          key={comment.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveCommentId(comment.id);
+                            setResumeTextViewMode("raw");
+                          }}
+                          onFocus={() => setActiveCommentId(comment.id)}
+                          onMouseEnter={() => setActiveCommentId(comment.id)}
+                        >
+                          <span className="resume-comment-card__text">{comment.text}</span>
+                        </button>
+                      ))}
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="posting-empty resume-comments-empty-tab">
+                      <p>No comments yet.</p>
+                      <span>This category has no generated comments.</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="posting-empty">
@@ -461,10 +523,96 @@ type ResumeTextComment = {
   text: string;
 };
 
+type ResumeCommentGroup = {
+  id: string;
+  label: string;
+  scoreLabel: string;
+  comments: ResumeTextComment[];
+};
+
 type ResumeTextSegment = {
   comment: ResumeTextComment | null;
   text: string;
 };
+
+function hasResumeMarkdownReadabilityWarning(warnings: string[]) {
+  return warnings.some((warning) =>
+    ["garbled_text", "low_structure_confidence", "missing_sections", "many_short_lines"].includes(warning)
+  );
+}
+
+function getResumeCommentGroups(run: ResumeGraderRun): ResumeCommentGroup[] {
+  const storedGroups = run.comments ?? [];
+  const usedStoredGroupIds = new Set<string>();
+  const signalGroup =
+    findResumeCommentGroup(storedGroups, usedStoredGroupIds, "rank", "Signal") ??
+    findResumeCommentGroup(storedGroups, usedStoredGroupIds, "signal", "Signal") ??
+    findResumeCommentGroup(storedGroups, usedStoredGroupIds, "rank", "Rank");
+  const groups: ResumeCommentGroup[] = [];
+
+  for (const [metricIndex, metric] of run.metrics.entries()) {
+    const metricId = `metric-${slugifyResumeCommentId(metric.label)}-${metricIndex}`;
+    const metricGroup = findResumeCommentGroup(storedGroups, usedStoredGroupIds, metricId, metric.label);
+
+    groups.push({
+      id: metricGroup?.id ?? metricId,
+      label: metricGroup?.label ?? metric.label,
+      scoreLabel: metricGroup?.scoreLabel ?? `${metric.value}/100`,
+      comments: metricGroup?.comments ?? []
+    });
+  }
+
+  for (const storedGroup of storedGroups) {
+    if (!usedStoredGroupIds.has(storedGroup.id)) {
+      groups.push(storedGroup);
+    }
+  }
+
+  groups.push({
+    id: signalGroup?.id ?? "rank",
+    label: "Signal",
+    scoreLabel: getSignalScoreLabel(signalGroup?.scoreLabel, run.tier),
+    comments: signalGroup?.comments ?? []
+  });
+
+  return groups;
+}
+
+function getSignalScoreLabel(scoreLabel: string | undefined, tier: string | null) {
+  return scoreLabel?.replace(/^(?:Rank|Signal)\s+/i, "") ?? tier ?? "--";
+}
+
+function findResumeCommentGroup(
+  groups: ResumeCommentGroup[],
+  usedGroupIds: Set<string>,
+  id: string,
+  label: string
+) {
+  const idMatch = groups.find((group) => group.id === id && !usedGroupIds.has(group.id));
+  if (idMatch) {
+    usedGroupIds.add(idMatch.id);
+    return idMatch;
+  }
+
+  const normalizedLabel = normalizeResumeCommentGroupLabel(label);
+  const labelMatch = groups.find(
+    (group) => normalizeResumeCommentGroupLabel(group.label) === normalizedLabel && !usedGroupIds.has(group.id)
+  );
+  if (labelMatch) {
+    usedGroupIds.add(labelMatch.id);
+    return labelMatch;
+  }
+
+  return null;
+}
+
+function normalizeResumeCommentGroupLabel(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function slugifyResumeCommentId(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "metric";
+}
 
 function ResumeOriginalText({
   activeCommentId,

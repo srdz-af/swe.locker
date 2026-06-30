@@ -1,25 +1,18 @@
 import { memo, type CSSProperties, type KeyboardEvent, useEffect, useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import {
   Button,
   DatePicker,
   DatePickerInput,
   Loading,
   Modal,
-  OverflowMenu,
-  OverflowMenuItem,
   Select,
   SelectItem,
-  Tab,
-  TabList,
   Tag,
-  TextArea,
   TextInput,
   Tile,
-  Tabs,
   TimePicker
 } from "@carbon/react";
-import { Add, Launch, Save, TrashCan } from "@carbon/icons-react";
+import { Add, Archive, Launch, Save, TrashCan } from "@carbon/icons-react";
 import type {
   ApplicationDto,
   ApplicationInterviewDateDto,
@@ -27,6 +20,7 @@ import type {
   ApplicationStatus,
   UpdateApplicationDetailsRequest
 } from "../../../../shared/src/index";
+import { TextModePanel, type TextMode } from "../../components/TextModePanel";
 import { applicationStatuses, getApplicationStatusColor } from "../../constants";
 import { formatDate } from "../../utils/format";
 
@@ -52,15 +46,11 @@ type SystemApplicationLink = {
 function ApplicationCard({
   application,
   isSelected,
-  onArchive,
-  onDelete,
   onSelect,
   onStatusChange
 }: {
   application: ApplicationDto;
   isSelected: boolean;
-  onArchive: (application: ApplicationDto) => Promise<void>;
-  onDelete: (application: ApplicationDto) => Promise<void>;
   onSelect: (application: ApplicationDto) => void;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
@@ -91,30 +81,6 @@ function ApplicationCard({
           <h3>{application.company}</h3>
           <p>{application.role}</p>
         </div>
-        <OverflowMenu
-          aria-label={`Actions for ${application.company} ${application.role}`}
-          className="application-card__menu"
-          flipped
-          iconDescription="Application actions"
-          size="sm"
-        >
-          <OverflowMenuItem
-            itemText="Archive"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onArchive(application);
-            }}
-          />
-          <OverflowMenuItem
-            hasDivider
-            isDelete
-            itemText="Delete"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onDelete(application);
-            }}
-          />
-        </OverflowMenu>
       </div>
 
       <div
@@ -143,23 +109,27 @@ function ApplicationCard({
 function ApplicationDetailsPanel({
   application,
   isSaving,
+  onArchive,
+  onDelete,
   onSave,
   onStatusChange
 }: {
   application: ApplicationDto;
   isSaving: boolean;
+  onArchive: (application: ApplicationDto) => Promise<void>;
+  onDelete: (application: ApplicationDto) => Promise<void>;
   onSave: (application: ApplicationDto, details: UpdateApplicationDetailsRequest) => Promise<void>;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
 }) {
   const [notes, setNotes] = useState("");
-  const [notesTabIndex, setNotesTabIndex] = useState(0);
+  const [notesMode, setNotesMode] = useState<TextMode>("preview");
   const [interviewDates, setInterviewDates] = useState<InterviewDateInput[]>([]);
   const [links, setLinks] = useState<ApplicationLinkInput[]>([]);
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   useEffect(() => {
     setDetailsError(null);
-    setNotesTabIndex(0);
+    setNotesMode("preview");
     setNotes(application?.notes ?? "");
     setInterviewDates(application?.interviewDates.map(createInterviewDateInputFromDto) ?? []);
     setLinks(application?.links.map(createApplicationLinkInputFromDto) ?? []);
@@ -175,6 +145,24 @@ function ApplicationDetailsPanel({
       });
     } catch (error) {
       setDetailsError(error instanceof Error ? error.message : "Could not save application details.");
+    }
+  }
+
+  async function handleArchive() {
+    try {
+      setDetailsError(null);
+      await onArchive(application);
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : "Could not archive application.");
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      setDetailsError(null);
+      await onDelete(application);
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : "Could not delete application.");
     }
   }
 
@@ -211,38 +199,54 @@ function ApplicationDetailsPanel({
           <Button kind="primary" size="sm" renderIcon={Save} disabled={isSaving} onClick={() => void handleSave()}>
             Save
           </Button>
+          <Button
+            className="application-details-icon-action"
+            hasIconOnly
+            iconDescription="Archive application"
+            kind="ghost"
+            renderIcon={Archive}
+            size="sm"
+            tooltipPosition="bottom"
+            onClick={() => void handleArchive()}
+          />
+          <Button
+            className="application-details-icon-action"
+            hasIconOnly
+            iconDescription="Delete application"
+            kind="danger--ghost"
+            renderIcon={TrashCan}
+            size="sm"
+            tooltipPosition="bottom"
+            onClick={() => void handleDelete()}
+          />
         </div>
       </div>
 
       <div className="application-details-form">
         <div className="application-notes-panel">
-          <div className="application-notes-tabs">
-            <Tabs selectedIndex={notesTabIndex} onChange={({ selectedIndex }) => setNotesTabIndex(selectedIndex)}>
-              <TabList aria-label="Application notes views" contained size="sm">
-                <Tab>Preview</Tab>
-                <Tab>Raw text</Tab>
-              </TabList>
-            </Tabs>
-            {notesTabIndex === 0 ? (
-              <div className="application-notes-preview" aria-label="Notes preview">
-                {notes.trim() ? (
-                  <ReactMarkdown>{notes}</ReactMarkdown>
-                ) : (
-                  <p className="application-notes-preview-empty">No notes yet.</p>
-                )}
-              </div>
-            ) : (
-              <TextArea
-                hideLabel
-                id={`application-notes-${application.id}`}
-                labelText="Notes"
-                placeholder="Notes about recruiter calls, prep, decisions, or follow-up. Supports markdown"
-                rows={24}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            )}
-          </div>
+          <TextModePanel
+            className="application-notes-editor"
+            headerClassName="application-notes-toolbar"
+            id={`application-notes-${application.id}`}
+            mode={notesMode}
+            onModeChange={setNotesMode}
+            onRawTextChange={setNotes}
+            previewAriaLabel="Notes preview"
+            previewBodyClassName="application-notes-preview"
+            previewEmpty={<p className="application-notes-preview-empty">No notes yet.</p>}
+            previewLabel="Preview"
+            previewMarkdown={notes}
+            rawLabel="Edit"
+            rawText={notes}
+            rawTextAreaId={`application-notes-${application.id}`}
+            rawTextAreaLabel="Notes"
+            rawTextAreaPlaceholder="Notes about recruiter calls, prep, decisions, or follow-up. Supports markdown"
+            rawTextAreaRows={24}
+            scrollKey={application.id}
+            tabsAriaLabel="Application notes views"
+            tabsClassName="application-notes-view-tabs"
+            title="Notes"
+          />
         </div>
         <div className="application-details-side-panel">
           <div
@@ -545,8 +549,6 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
                       application={application}
                       isSelected={application.id === selectedApplicationId}
                       key={application.id}
-                      onArchive={onArchive}
-                      onDelete={onDelete}
                       onSelect={handleSelectApplication}
                       onStatusChange={onStatusChange}
                     />
@@ -572,6 +574,8 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
           <ApplicationDetailsPanel
             application={selectedApplication}
             isSaving={isSavingDetails}
+            onArchive={onArchive}
+            onDelete={onDelete}
             onSave={onDetailsSave}
             onStatusChange={onStatusChange}
           />

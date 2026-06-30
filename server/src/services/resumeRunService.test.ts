@@ -39,8 +39,8 @@ const baseResumeRun = {
   comments: JSON.stringify([
     {
       id: "rank",
-      label: "Rank",
-      scoreLabel: "Rank B",
+      label: "Signal",
+      scoreLabel: "Signal B",
       comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
     }
   ]),
@@ -60,8 +60,8 @@ describe("resumeRunService", () => {
       comments: [
         {
           id: "rank",
-          label: "Rank",
-          scoreLabel: "Rank B",
+          label: "Signal",
+          scoreLabel: "Signal B",
           comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
         }
       ]
@@ -86,8 +86,8 @@ describe("resumeRunService", () => {
         comments: [
           {
             id: "rank",
-            label: "Rank",
-            scoreLabel: "Rank B",
+            label: "Signal",
+            scoreLabel: "Signal B",
             comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
           }
         ],
@@ -137,8 +137,8 @@ describe("resumeRunService", () => {
         comments: JSON.stringify([
           {
             id: "rank",
-            label: "Rank",
-            scoreLabel: "Rank B",
+            label: "Signal",
+            scoreLabel: "Signal B",
             comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
           }
         ]),
@@ -184,8 +184,8 @@ describe("resumeRunService", () => {
           comments: JSON.stringify([
             {
               id: "rank",
-              label: "Rank",
-              scoreLabel: "Rank B",
+              label: "Signal",
+              scoreLabel: "Signal B",
               comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
             }
           ])

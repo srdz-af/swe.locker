@@ -67,12 +67,6 @@
   gap: 0.5rem;
 }
 
-.application-card__menu {
-  margin-block-start: -0.25rem;
-  margin-inline-end: -0.5rem;
-  flex: none;
-}
-
 .application-card h3 {
   margin: 0 0 0.25rem;
   font-size: 0.875rem;
@@ -129,6 +123,10 @@
   gap: 0.75rem;
 }
 
+.application-details-icon-action {
+  flex: 0 0 auto;
+}
+
 .application-status-control--details {
   min-inline-size: 12rem;
 }
@@ -152,34 +150,21 @@
   display: grid;
 }
 
-.application-notes-tabs {
+.application-notes-editor {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-block-size: 0;
 }
 
-.application-notes-tabs .cds--tabs__nav-link:active,
-.application-notes-tabs .cds--tabs__nav-link:focus,
-.application-notes-tabs .cds--tabs__nav-link:focus-visible {
-  outline: none;
+.application-notes-toolbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem;
+  border-block-end: 1px solid var(--app-border);
 }
 
-.application-notes-tabs > .cds--form-item,
-.application-notes-tabs > .cds--form-item .cds--text-area__wrapper {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-block-size: 0;
-}
-
-.application-notes-tabs > .cds--form-item,
-.application-notes-tabs > .cds--form-item .cds--text-area,
-.application-notes-tabs > .cds--form-item .cds--text-area__wrapper {
-  block-size: 100%;
-}
-
-.application-notes-tabs > .cds--form-item .cds--text-area {
-  min-block-size: 0;
-  resize: none;
+.application-notes-view-tabs {
+  min-inline-size: 9rem;
 }
 
 .application-notes-preview {
@@ -444,44 +429,6 @@
   color: var(--cds-text-error, #da1e28);
   font-size: 0.875rem;
   line-height: 1.42857;
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options {
-  border: 1px solid var(--app-border);
-  background: var(--app-surface-alt);
-  box-shadow: 0 0.25rem 1rem var(--app-shadow);
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__option {
-  background: var(--app-surface-alt);
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__btn {
-  color: var(--app-text);
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__btn:hover,
-:root[data-app-theme="dark"] .cds--overflow-menu-options__btn:focus {
-  background: #4c4c4c;
-  color: var(--app-text);
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__option-content {
-  color: inherit;
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu--divider {
-  border-block-start-color: var(--app-border);
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__option--danger .cds--overflow-menu-options__btn {
-  color: #ffb3b8;
-}
-
-:root[data-app-theme="dark"] .cds--overflow-menu-options__option--danger .cds--overflow-menu-options__btn:hover,
-:root[data-app-theme="dark"] .cds--overflow-menu-options__option--danger .cds--overflow-menu-options__btn:focus {
-  background: #750e13;
-  color: #ffffff;
 }
 
 .application-card p,

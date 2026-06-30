@@ -82,7 +82,7 @@ function createTemporaryResumeComments({
   const rankComments = createTemporaryResumeCommentList({
     id: "rank",
     index: 0,
-    label: "Rank",
+    label: "Signal",
     ranges,
     text: parsedText,
     valueLabel: rank,
@@ -92,8 +92,8 @@ function createTemporaryResumeComments({
   return [
     {
       id: "rank",
-      label: "Rank",
-      scoreLabel: `Rank ${rank}`,
+      label: "Signal",
+      scoreLabel: `Signal ${rank}`,
       comments: rankComments
     },
     ...metrics.map((metric, metricIndex) => ({
@@ -159,10 +159,10 @@ function getTemporaryResumeCommentText({
   valueLabel: string;
   verdict: string;
 }) {
-  if (label === "Rank") {
+  if (label === "Signal") {
     return commentIndex === 0
-      ? verdict || `Rank ${valueLabel}: this excerpt contributes to the overall resume signal.`
-      : `Rank ${valueLabel}: this section affects seniority, scope, and evidence quality.`;
+      ? verdict || `Signal ${valueLabel}: this excerpt contributes to the overall resume signal.`
+      : `Signal ${valueLabel}: this section affects seniority, scope, and evidence quality.`;
   }
 
   if (commentIndex === 0) {

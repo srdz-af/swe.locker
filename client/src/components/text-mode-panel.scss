@@ -1,0 +1,109 @@
+.text-mode-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-block-size: 0;
+}
+
+.text-mode-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-block-end: 1px solid var(--app-border);
+}
+
+.text-mode-panel__header--toolbar-only {
+  justify-content: flex-end;
+}
+
+.text-mode-panel__header h3 {
+  overflow: hidden;
+  min-inline-size: 0;
+  margin: 0;
+  color: var(--app-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.42857;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-mode-panel__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.text-mode-panel__tabs .cds--tabs {
+  background: transparent;
+  min-block-size: 2.5rem;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-item {
+  min-block-size: 2.5rem;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-link {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.5rem;
+  padding-inline: 1rem;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-item-label-wrapper {
+  align-items: center;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-link:active,
+.text-mode-panel__tabs .cds--tabs__nav-link:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-link:focus-visible {
+  outline: 2px solid var(--cds-focus, #0f62fe);
+  outline-offset: -2px;
+}
+
+.text-mode-panel__tabs .cds--tabs__nav-item--selected {
+  border-block-end-color: var(--cds-border-interactive, #0f62fe);
+}
+
+.text-mode-panel__tabs-help {
+  display: inline-flex;
+  align-items: center;
+}
+
+.text-mode-panel__body {
+  overflow: auto;
+  min-block-size: 0;
+}
+
+.text-mode-panel__body[hidden] {
+  display: none;
+}
+
+.text-mode-panel__body--editable {
+  display: grid;
+  overflow: hidden;
+  padding: 0;
+}
+
+.text-mode-panel__body--editable > .cds--form-item,
+.text-mode-panel__body--editable > .cds--form-item .cds--text-area__wrapper {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-block-size: 0;
+}
+
+.text-mode-panel__body--editable > .cds--form-item,
+.text-mode-panel__body--editable > .cds--form-item .cds--text-area,
+.text-mode-panel__body--editable > .cds--form-item .cds--text-area__wrapper {
+  block-size: 100%;
+}
+
+.text-mode-panel__body--editable > .cds--form-item .cds--text-area {
+  min-block-size: 0;
+  resize: none;
+}
