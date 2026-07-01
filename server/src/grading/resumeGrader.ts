@@ -83,6 +83,19 @@ type ResumeEntryHeaderRanges = {
   date: ResumeTextRange | null;
 };
 
+type ResumeLineRole = "blank" | "bullet" | "section_heading" | "item_boundary" | "skill_row" | "continuation" | "plain_text";
+
+type ResumeLineRoleContext = {
+  hasCurrentItem: boolean;
+  currentItemHasBullets: boolean;
+  hasCurrentBullet: boolean;
+  nextLineIsBlank: boolean;
+  nextNextVisibleLine: string | null;
+  nextVisibleLine: string | null;
+  previousLineIsBlank: boolean;
+  previousVisibleLine: string | null;
+};
+
 const resumeMetricLabels = ["Structure", "Impact", "Evidence", "Specificity", "Relevance"];
 const resumeRanks: ResumeRank[] = ["S", "A", "B", "C"];
 const bulletPattern = /^[-*•‣▪◦‒–—−]\s*/u;
@@ -97,8 +110,8 @@ const resumeEntryDateRangePattern = new RegExp(
 const resumeEntryDatePattern =
   /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)\.?\s+\d{4}\b/i;
 const resumeEntryYearRangePattern = /\b(?:19|20)\d{2}\s*(?:-|\u2010|\u2011|\u2012|\u2013|\u2014|\u2015|\u2212|to|through|until)\s*(?:Present|Current|Now|(?:19|20)\d{2})\b/i;
-const sectionTitlePattern =
-  /^(?:achievements?|activities|awards?|certifications?|education|experience|experiences|honou?rs?|leadership|projects?|publications?|skills?|summary|technologies|volunteering)(?:\s*(?:&|\/|and)\s*(?:achievements?|activities|awards?|certifications?|education|experience|experiences|honou?rs?|leadership|projects?|publications?|skills?|summary|technologies|volunteering))*$/i;
+const resumeSectionSignalPattern =
+  /\b(?:achievements?|activities|awards?|certifications?|competitions?|education|experience|experiences|honou?rs?|leadership|projects?|publications?|skills?|summary|technologies|volunteering)\b/i;
 
 export function gradeResume(input: { sourceName: string; parsedText: string }): ResumeGradeResult {
   const resumeItems = createTemporaryResumeItems(input.parsedText);
@@ -315,7 +328,21 @@ function extractResumeItems(text: string): ResumeItemCandidate[] {
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
-    if (line.contentStart < 0) {
+    const nextVisibleLine = getResumeVisibleLineAfter(lines, lineIndex + 1, text);
+    const nextNextVisibleLine = nextVisibleLine ? getResumeVisibleLineAfter(lines, nextVisibleLine.index + 1, text) : null;
+    const activeItem = currentItem as ResumeItemCandidate | null;
+    const role = getResumeLineRole(line, {
+      currentItemHasBullets: Boolean(activeItem?.bullets.length),
+      hasCurrentItem: Boolean(activeItem),
+      hasCurrentBullet: Boolean(currentBullet),
+      nextLineIsBlank: isResumeTextLineBlank(lines[lineIndex + 1]),
+      nextNextVisibleLine: nextNextVisibleLine?.text ?? null,
+      nextVisibleLine: nextVisibleLine?.text ?? null,
+      previousLineIsBlank: isResumeTextLineBlank(lines[lineIndex - 1]),
+      previousVisibleLine: getPreviousResumeVisibleLine(lines, lineIndex - 1, text)
+    });
+
+    if (role === "blank") {
       flushCurrentBullet();
       continue;
     }
@@ -323,21 +350,22 @@ function extractResumeItems(text: string): ResumeItemCandidate[] {
     const visibleText = text.slice(line.contentStart, line.contentEnd);
     const bulletMatch = visibleText.match(bulletPattern);
 
-    if (bulletMatch) {
+    if (role === "bullet" && bulletMatch) {
       startBullet(line, bulletMatch);
       continue;
     }
 
-    const trimmedLine = visibleText.trim();
-    const sectionTitle = getLikelyResumeSectionTitle(trimmedLine);
-    const nextVisibleLine = getNextResumeVisibleLine(lines, lineIndex + 1, text);
-
-    if (currentBullet && (sectionTitle || isLikelyResumeEntryBoundary(trimmedLine, nextVisibleLine))) {
+    if (currentBullet && isResumeStructuralLineRole(role)) {
       flushCurrentBullet();
     }
 
-    if (sectionTitle) {
+    if (role === "section_heading" || role === "skill_row") {
       currentItem = null;
+      continue;
+    }
+
+    if (role === "item_boundary") {
+      absorbItemLine(line);
       continue;
     }
 
@@ -497,8 +525,268 @@ function getResumeLineContentRange(line: ResumeTextLine): ResumeTextRange | null
   };
 }
 
-function getNextResumeVisibleLine(lines: ResumeTextLine[], startIndex: number, text: string) {
+function getResumeLineRole(line: ResumeTextLine, context: ResumeLineRoleContext): ResumeLineRole {
+  if (line.contentStart < 0) {
+    return "blank";
+  }
+
+  const value = line.text.slice(line.contentStart - line.start, line.contentEnd - line.start).trim();
+
+  if (bulletPattern.test(value)) {
+    return "bullet";
+  }
+
+  if (isLikelyResumeSkillRow(value)) {
+    return "skill_row";
+  }
+
+  const sectionScore = getResumeSectionHeadingScore(value, context);
+  const itemScore = getResumeItemBoundaryScore(value, context);
+
+  if (sectionScore >= 5 && sectionScore > itemScore) {
+    return "section_heading";
+  }
+
+  if (itemScore >= 5) {
+    return "item_boundary";
+  }
+
+  if (context.hasCurrentBullet && isLikelyResumeBulletContinuation(value, context)) {
+    return "continuation";
+  }
+
+  return "plain_text";
+}
+
+function isResumeStructuralLineRole(role: ResumeLineRole) {
+  return role === "section_heading" || role === "item_boundary" || role === "skill_row";
+}
+
+function getResumeSectionHeadingScore(value: string, context: ResumeLineRoleContext) {
+  let score = 0;
+  const normalizedValue = normalizeResumeSectionTitleCandidate(value);
+  const wordCount = getResumeWordCount(value);
+  const titleLike = isResumeTitleLike(value);
+  const hasSectionSignal = resumeSectionSignalPattern.test(normalizedValue);
+
+  if (!titleLike && !hasSectionSignal) {
+    return 0;
+  }
+
+  if (titleLike) {
+    score += 2;
+  }
+  if (wordCount <= 6) {
+    score += 1;
+  }
+  if (context.previousLineIsBlank) {
+    score += 1;
+  }
+  if (context.nextLineIsBlank) {
+    score += 1;
+  }
+  if (context.hasCurrentBullet || context.currentItemHasBullets) {
+    score += 1;
+  }
+  if (context.nextVisibleLine && isResumeBulletLine(context.nextVisibleLine)) {
+    score += 2;
+  }
+  if (context.nextVisibleLine && isLikelyResumeSkillRow(context.nextVisibleLine)) {
+    score += 4;
+  }
+  if (
+    context.nextVisibleLine &&
+    isLikelyResumeItemStart(context.nextVisibleLine, context.nextNextVisibleLine, null)
+  ) {
+    score += 3;
+  }
+  if (hasSectionSignal) {
+    score += 1;
+  }
+  if (/[&/]/.test(value) && wordCount <= 8) {
+    score += 1;
+  }
+  if (findResumeEntryDateMatch(value)) {
+    score -= 4;
+  }
+  if (isLikelyResumeSkillRow(value)) {
+    score -= 4;
+  }
+  if (isResumeSentenceLike(value)) {
+    score -= 3;
+  }
+  if (context.hasCurrentItem && !context.currentItemHasBullets && !context.hasCurrentBullet) {
+    score -= 3;
+  }
+  if (context.previousVisibleLine && isLikelyResumeItemStart(context.previousVisibleLine, value, context.nextVisibleLine)) {
+    score -= 2;
+  }
+
+  return score;
+}
+
+function getResumeItemBoundaryScore(value: string, context: ResumeLineRoleContext) {
+  let score = 0;
+  const entryTitle = isLikelyResumeEntryTitle(value);
+  const titleLike = isResumeTitleLike(value);
+
+  if (!entryTitle && !titleLike) {
+    return isResumeSentenceLike(value) ? -3 : 0;
+  }
+
+  if (entryTitle) {
+    score += 5;
+  }
+  if (titleLike) {
+    score += 2;
+  }
+  if (context.hasCurrentBullet) {
+    score += 1;
+  }
+  if (context.nextVisibleLine && isResumeBulletLine(context.nextVisibleLine)) {
+    score += 2;
+  }
+  if (isLikelyResumeItemMetadataLine(context.nextVisibleLine, context.nextNextVisibleLine)) {
+    score += 3;
+  }
+  if (context.nextNextVisibleLine && isResumeBulletLine(context.nextNextVisibleLine)) {
+    score += 1;
+  }
+  if (isLikelyResumeSkillRow(value)) {
+    score -= 5;
+  }
+  if (isResumeSentenceLike(value)) {
+    score -= 3;
+  }
+  if (getResumeWordCount(value) > 12) {
+    score -= 2;
+  }
+
+  return score;
+}
+
+function isLikelyResumeItemStart(value: string, nextVisibleLine: string | null, nextNextVisibleLine: string | null) {
+  return isLikelyResumeEntryTitle(value) || isLikelyResumeStandaloneItemTitle(value, nextVisibleLine, nextNextVisibleLine);
+}
+
+function isLikelyResumeStandaloneItemTitle(
+  value: string,
+  nextVisibleLine: string | null,
+  nextNextVisibleLine: string | null
+) {
+  if (!isLikelyStandaloneResumeEntryTitle(value)) {
+    return false;
+  }
+
+  return (
+    Boolean(nextVisibleLine && isResumeBulletLine(nextVisibleLine)) ||
+    isLikelyResumeItemMetadataLine(nextVisibleLine, nextNextVisibleLine)
+  );
+}
+
+function isLikelyResumeItemMetadataLine(value: string | null, nextVisibleLine: string | null) {
+  if (!value || isResumeBulletLine(value) || isLikelyResumeSkillRow(value) || isResumeSentenceLike(value)) {
+    return false;
+  }
+
+  if (isLikelyResumeEntryTitle(value)) {
+    return true;
+  }
+
+  return Boolean(nextVisibleLine && isResumeBulletLine(nextVisibleLine) && isResumeTitleLike(value) && getResumeWordCount(value) <= 8);
+}
+
+function isLikelyResumeSkillRow(value: string) {
+  const colonIndex = value.indexOf(":");
+  if (colonIndex <= 0 || colonIndex > 32) {
+    return false;
+  }
+
+  const label = value.slice(0, colonIndex).trim();
+  const body = value.slice(colonIndex + 1).trim();
+
+  if (!label || !body || getResumeWordCount(label) > 5 || isResumeSentenceLike(label)) {
+    return false;
+  }
+
+  const listSeparatorCount = (body.match(/[,;/|]/g) ?? []).length;
+  const shortTokenCount = body.split(/[\s,;/|]+/).filter((token) => /^[A-Za-z0-9+#.-]{1,24}$/.test(token)).length;
+
+  return listSeparatorCount >= 1 || shortTokenCount >= 3;
+}
+
+function isLikelyResumeBulletContinuation(value: string, context: ResumeLineRoleContext) {
+  if (isResumeBulletLine(value) || isLikelyResumeSkillRow(value) || findResumeEntryDateMatch(value)) {
+    return false;
+  }
+
+  if (context.nextVisibleLine && isLikelyResumeItemStart(value, context.nextVisibleLine, context.nextNextVisibleLine)) {
+    return false;
+  }
+
+  return !isResumeTitleLike(value) || isResumeSentenceLike(value) || getResumeWordCount(value) > 8;
+}
+
+function isResumeBulletLine(value: string) {
+  return bulletPattern.test(value.trim());
+}
+
+function isResumeTitleLike(value: string) {
+  const trimmedValue = normalizeResumeSectionTitleCandidate(value);
+  const wordCount = getResumeWordCount(trimmedValue);
+
+  if (trimmedValue.length < 3 || trimmedValue.length > 120 || wordCount === 0 || /[.!?]$/.test(trimmedValue)) {
+    return false;
+  }
+
+  const letters = trimmedValue.match(/\p{L}/gu) ?? [];
+  const uppercaseLetters = trimmedValue.match(/\p{Lu}/gu) ?? [];
+  const startsWithTitleCharacter = /^[\p{Lu}0-9]/u.test(trimmedValue);
+  const uppercaseRatio = letters.length > 0 ? uppercaseLetters.length / letters.length : 0;
+  const titleCaseWords = trimmedValue
+    .split(/\s+/)
+    .filter((word) => /^[\p{Lu}0-9][\p{L}0-9+#&/().-]*$/u.test(word)).length;
+
+  return startsWithTitleCharacter && (uppercaseRatio >= 0.35 || titleCaseWords >= Math.ceil(wordCount * 0.55));
+}
+
+function isResumeSentenceLike(value: string) {
+  const wordCount = getResumeWordCount(value);
+  const commaCount = (value.match(/,/g) ?? []).length;
+  const lowercaseWordCount = value.split(/\s+/).filter((word) => /^[a-z]/.test(word)).length;
+
+  return (
+    wordCount > 12 ||
+    /[.!?]$/.test(value) ||
+    commaCount >= 3 ||
+    (wordCount >= 7 && lowercaseWordCount >= Math.ceil(wordCount * 0.45))
+  );
+}
+
+function getResumeWordCount(value: string) {
+  return value.split(/\s+/).filter(Boolean).length;
+}
+
+function isResumeTextLineBlank(line: ResumeTextLine | undefined) {
+  return !line || line.contentStart < 0;
+}
+
+function getResumeVisibleLineAfter(lines: ResumeTextLine[], startIndex: number, text: string) {
   for (let lineIndex = startIndex; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (line.contentStart >= 0) {
+      return {
+        index: lineIndex,
+        text: text.slice(line.contentStart, line.contentEnd).trim()
+      };
+    }
+  }
+
+  return null;
+}
+
+function getPreviousResumeVisibleLine(lines: ResumeTextLine[], startIndex: number, text: string) {
+  for (let lineIndex = startIndex; lineIndex >= 0; lineIndex -= 1) {
     const line = lines[lineIndex];
     if (line.contentStart >= 0) {
       return text.slice(line.contentStart, line.contentEnd).trim();
@@ -506,15 +794,6 @@ function getNextResumeVisibleLine(lines: ResumeTextLine[], startIndex: number, t
   }
 
   return null;
-}
-
-function getLikelyResumeSectionTitle(value: string) {
-  const normalizedValue = normalizeResumeSectionTitleCandidate(value);
-  if (normalizedValue.length < 3 || normalizedValue.length > 70 || /[.!?]$/.test(normalizedValue)) {
-    return null;
-  }
-
-  return sectionTitlePattern.test(normalizedValue) ? normalizedValue : null;
 }
 
 function normalizeResumeSectionTitleCandidate(value: string) {
@@ -527,10 +806,6 @@ function isLikelyResumeEntryTitle(value: string) {
   }
 
   return resumeEntryDateRangePattern.test(value) || resumeEntryDatePattern.test(value) || resumeEntryYearRangePattern.test(value) || (value.includes(" | ") && /^[A-Z0-9]/.test(value));
-}
-
-function isLikelyResumeEntryBoundary(value: string, nextVisibleLine: string | null) {
-  return isLikelyResumeEntryTitle(value) || (isLikelyStandaloneResumeEntryTitle(value) && Boolean(nextVisibleLine && isLikelyResumeEntryTitle(nextVisibleLine)));
 }
 
 function isLikelyStandaloneResumeEntryTitle(value: string) {

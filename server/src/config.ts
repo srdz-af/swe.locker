@@ -4,7 +4,8 @@ import { z } from "zod";
 const envSchema = z.object({
   CLIENT_ORIGIN: z.string().url().default("http://localhost:5173"),
   DATABASE_URL: z.string().default("file:./dev.db"),
-  FETCH_INTERVAL_HOURS: z.coerce.number().int().positive().default(12),
+  FETCH_INTERVAL_HOURS: z.coerce.number().int().positive().default(1),
+  SOURCE_CACHE_DIR: z.string().trim().min(1).default(".cache/sources"),
   RAW_README_URL: z
     .string()
     .url()
@@ -34,5 +35,6 @@ export const config = {
   seasonLabel: env.SEASON_LABEL,
   serverPort: env.SERVER_PORT,
   sourceDisplayName: env.SOURCE_DISPLAY_NAME,
-  sourceRepositoryUrl: env.SOURCE_REPOSITORY_URL
+  sourceRepositoryUrl: env.SOURCE_REPOSITORY_URL,
+  sourceCacheDir: env.SOURCE_CACHE_DIR
 } as const;

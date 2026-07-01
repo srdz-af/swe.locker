@@ -439,13 +439,13 @@ describe("applicationService", () => {
     } satisfies Partial<HttpError>);
   });
 
-  it("returns 365 days of activity counts", async () => {
+  it("returns 365 days of unique application counts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-27T12:00:00.000Z"));
-    prismaMock.applicationEvent.findMany.mockResolvedValue([
-      { eventDate: new Date("2026-06-26T05:00:00.000Z") },
-      { eventDate: new Date("2026-06-26T23:00:00.000Z") },
-      { eventDate: new Date("2026-06-27T01:00:00.000Z") }
+    prismaMock.application.findMany.mockResolvedValue([
+      { createdAt: new Date("2026-06-26T05:00:00.000Z") },
+      { createdAt: new Date("2026-06-26T23:00:00.000Z") },
+      { createdAt: new Date("2026-06-27T01:00:00.000Z") }
     ]);
 
     const activity = await listApplicationActivity();
@@ -454,26 +454,27 @@ describe("applicationService", () => {
     expect(activity[0]).toEqual({ date: "2025-06-28", count: 0 });
     expect(activity.at(-1)).toEqual({ date: "2026-06-27", count: 1 });
     expect(activity.find((day) => day.date === "2026-06-26")).toEqual({ date: "2026-06-26", count: 2 });
-    expect(prismaMock.applicationEvent.findMany).toHaveBeenCalledWith({
+    expect(prismaMock.application.findMany).toHaveBeenCalledWith({
       where: {
         ownerKey: "local",
-        eventDate: {
+        createdAt: {
           gte: new Date("2025-06-28T00:00:00.000Z"),
           lt: new Date("2026-06-28T00:00:00.000Z")
         }
       },
       select: {
-        eventDate: true
+        createdAt: true
       }
     });
+    expect(prismaMock.applicationEvent.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns a full calendar year of activity counts for a selected past year", async () => {
+  it("returns a full calendar year of unique application counts for a selected past year", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-27T12:00:00.000Z"));
-    prismaMock.applicationEvent.findMany.mockResolvedValue([
-      { eventDate: new Date("2025-01-01T05:00:00.000Z") },
-      { eventDate: new Date("2025-12-31T23:00:00.000Z") }
+    prismaMock.application.findMany.mockResolvedValue([
+      { createdAt: new Date("2025-01-01T05:00:00.000Z") },
+      { createdAt: new Date("2025-12-31T23:00:00.000Z") }
     ]);
 
     const activity = await listApplicationActivity({ year: 2025 });
@@ -481,17 +482,18 @@ describe("applicationService", () => {
     expect(activity).toHaveLength(365);
     expect(activity[0]).toEqual({ date: "2025-01-01", count: 1 });
     expect(activity.at(-1)).toEqual({ date: "2025-12-31", count: 1 });
-    expect(prismaMock.applicationEvent.findMany).toHaveBeenCalledWith({
+    expect(prismaMock.application.findMany).toHaveBeenCalledWith({
       where: {
         ownerKey: "local",
-        eventDate: {
+        createdAt: {
           gte: new Date("2025-01-01T00:00:00.000Z"),
           lt: new Date("2026-01-01T00:00:00.000Z")
         }
       },
       select: {
-        eventDate: true
+        createdAt: true
       }
     });
+    expect(prismaMock.applicationEvent.findMany).not.toHaveBeenCalled();
   });
 });

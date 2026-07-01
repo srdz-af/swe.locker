@@ -194,6 +194,13 @@
   min-block-size: 10rem;
 }
 
+.resume-chart-placeholder {
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 10rem;
+  visibility: hidden;
+}
+
 .resume-bullet-heatmap .cds--cc--axes text.axis-title {
   display: none;
 }
@@ -224,7 +231,8 @@
 }
 
 .resume-radar-chart .chart-holder,
-.resume-radar-chart .cds--chart-holder {
+.resume-radar-chart .cds--chart-holder,
+.resume-radar-chart .resume-chart-placeholder {
   inline-size: min(100%, 28rem);
   block-size: 18rem;
   min-block-size: 18rem;
@@ -594,9 +602,9 @@
   grid-column: 1;
   min-block-size: max(100%, var(--resume-review-min-block-size, 0px));
   padding: 1rem;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
-  color: #161616;
+  border: 1px solid var(--cds-border-subtle-01, #e0e0e0);
+  background: var(--app-surface);
+  color: var(--app-text);
   box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.08);
 }
 
@@ -663,17 +671,22 @@
 
 .resume-review-formatted-content h4 {
   margin-block-start: 0.25rem;
-  color: #525252;
+  color: var(--app-text-muted);
   font-size: 0.875rem;
   font-weight: 500;
 }
 
+.resume-review-formatted-content hr {
+  border: 0;
+  border-block-start: 1px solid var(--cds-border-subtle-01, #e0e0e0);
+}
+
 .resume-review-content .resume-ats-warning strong {
-  color: #161616;
+  color: var(--app-text);
 }
 
 .resume-review-content .resume-ats-warning span {
-  color: #525252;
+  color: var(--app-text-muted);
 }
 
 .resume-review-formatted-content p,
@@ -701,6 +714,7 @@
 }
 
 .resume-review-formatted-bullet {
+  position: relative;
   cursor: pointer;
 }
 
@@ -787,17 +801,30 @@
 }
 
 .resume-review-highlight[data-review-tone="hover"] {
-  --resume-review-color: #8d8d8d;
-  --resume-review-bg: rgba(141, 141, 141, 0.18);
-  --resume-review-bg-strong: rgba(141, 141, 141, 0.26);
+  --resume-review-color: #f1c21b;
+  --resume-review-bg: rgba(241, 194, 27, 0.18);
+  --resume-review-bg-strong: rgba(241, 194, 27, 0.26);
+}
+
+.resume-review-highlight[data-review-state="highlighted"] {
+  --resume-review-color: #f1c21b;
+  --resume-review-bg: rgba(241, 194, 27, 0.18);
+  --resume-review-bg-strong: rgba(241, 194, 27, 0.26);
+}
+
+.resume-review-highlight[data-review-state="selected"] {
+  --resume-review-color: #f1c21b;
+  --resume-review-bg: rgba(241, 194, 27, 0.38);
+  --resume-review-bg-strong: rgba(241, 194, 27, 0.46);
 }
 
 .resume-review-highlight {
+  position: relative;
   display: inline;
-  padding: 0 0.0625rem;
+  padding: 0;
   border: 0;
-  border-block-end: 2px solid var(--resume-review-color);
   background: var(--resume-review-bg);
+  box-shadow: 0 -0.125rem 0 var(--resume-review-bg), 0 0.1875rem 0 var(--resume-review-bg);
   color: inherit;
   cursor: pointer;
   font: inherit;
@@ -806,6 +833,7 @@
 }
 
 .resume-review-bullet-text {
+  position: relative;
   display: inline;
   padding: 0;
   border: 0;
@@ -817,10 +845,50 @@
   white-space: pre-wrap;
 }
 
+.resume-review-highlight[data-review-bullet-number]::before,
+.resume-review-bullet-text[data-review-bullet-number]::before,
+.resume-review-formatted-bullet[data-review-bullet-number]::before {
+  content: attr(data-review-bullet-number);
+  position: absolute;
+  z-index: 3;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  transform: translate(calc(-100% - 0.25rem), -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  inline-size: 1rem;
+  min-inline-size: 1rem;
+  block-size: 1rem;
+  padding: 0;
+  border-radius: 50%;
+  background: #8d8d8d;
+  color: #ffffff;
+  font-family: "IBM Plex Sans", Arial, sans-serif;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.resume-review-formatted-bullet[data-review-bullet-number]::before {
+  transform: translate(calc(-100% - 1.5rem), -50%);
+}
+
 .resume-review-bullet-text:hover,
 .resume-review-bullet-text:focus-visible {
-  background: rgba(141, 141, 141, 0.18);
+  background: rgba(241, 194, 27, 0.18);
+  box-shadow: 0 -0.125rem 0 rgba(241, 194, 27, 0.18), 0 0.1875rem 0 rgba(241, 194, 27, 0.18);
   outline: 0;
+}
+
+.resume-review-bullet-text[data-review-state="selected"],
+.resume-review-bullet-text[data-review-state="selected"]:hover,
+.resume-review-bullet-text[data-review-state="selected"]:focus-visible {
+  background: rgba(241, 194, 27, 0.38);
+  box-shadow: 0 -0.125rem 0 rgba(241, 194, 27, 0.38), 0 0.1875rem 0 rgba(241, 194, 27, 0.38);
 }
 
 .resume-review-highlight:hover,

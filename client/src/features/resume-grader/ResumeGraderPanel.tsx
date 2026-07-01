@@ -5,7 +5,7 @@ import { HeatmapChart, RadarChart, ScaleTypes } from "@carbon/charts-react";
 import type { ChartTabularData, HeatmapChartOptions, RadarChartOptions } from "@carbon/charts-react";
 import type { ApplicationDto, ResumeGraderBulletGradeDto, ResumeGraderItemDto } from "../../../../shared/src/index";
 import { TextModePanel, type TextMode } from "../../components/TextModePanel";
-import { getResumeGradeColor, resumeAcceptedFileTypes } from "../../constants";
+import { getResumeGradeColor, modalPrimaryFocusSelector, resumeAcceptedFileTypes } from "../../constants";
 import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatDate, getApplicationStatusLabel } from "../../utils/format";
 import { parseResumeMarkdownModel } from "./resumeMarkdown";
@@ -15,6 +15,7 @@ const resumeHeatmapGradeColors = Array.from({ length: 101 }, (_, grade) => getRe
 
 export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   applications,
+  isActive = false,
   isUploadPending,
   onDeleteRun,
   onUpload,
@@ -22,6 +23,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   themeMode
 }: {
   applications: ApplicationDto[];
+  isActive?: boolean;
   isUploadPending: boolean;
   onDeleteRun: (run: ResumeGraderRun) => Promise<void>;
   onUpload: (file: File) => void;
@@ -36,6 +38,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
   const [resumeTextViewMode, setResumeTextViewMode] = useState<TextMode>("preview");
   const [reviewScrollRequest, setReviewScrollRequest] = useState<ResumeReviewScrollRequest | null>(null);
   const [selectedReviewBulletIndex, setSelectedReviewBulletIndex] = useState<number | null>(null);
+  const [canRenderCharts, setCanRenderCharts] = useState(false);
   const heatmapElementRef = useRef<HTMLDivElement | null>(null);
   const previousLatestRunIdRef = useRef<string | null>(latestRun?.id ?? null);
   const selectedRun = useMemo(
@@ -116,6 +119,21 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
       selectedReviewBulletIndex
     ]
   );
+  const reviewBulletNumberIndexes = useMemo(() => {
+    const indexes = new Set<number>();
+
+    if (selectedReviewBulletIndex !== null) {
+      indexes.add(selectedReviewBulletIndex);
+    }
+
+    for (const comment of visibleResumeReviewHighlights) {
+      if (comment.bulletIndex !== null) {
+        indexes.add(comment.bulletIndex);
+      }
+    }
+
+    return indexes;
+  }, [selectedReviewBulletIndex, visibleResumeReviewHighlights]);
   const selectedRunApplications = useMemo(
     () => getAssociatedResumeApplications(applications, selectedRun?.id ?? null),
     [applications, selectedRun?.id]
@@ -317,6 +335,28 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
     [themeMode]
   );
 
+  useEffect(() => {
+    if (!isActive) {
+      setCanRenderCharts(false);
+      return undefined;
+    }
+
+    setCanRenderCharts(false);
+    let firstFrameId = 0;
+    let secondFrameId = 0;
+
+    firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(() => {
+        setCanRenderCharts(true);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      window.cancelAnimationFrame(secondFrameId);
+    };
+  }, [isActive, selectedRun?.id, themeMode]);
+
   return (
     <div className="resume-grader-stack">
       <Tile className="resume-grader-latest-tile">
@@ -351,7 +391,11 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                 <h3>Bullet heatmap</h3>
                 {selectedRunHeatmapData.length > 0 ? (
                   <div className="resume-bullet-heatmap" ref={heatmapElementRef}>
-                    <HeatmapChart key={heatmapChartKey} data={selectedRunHeatmapData} options={heatmapOptions} />
+                    {canRenderCharts ? (
+                      <HeatmapChart key={heatmapChartKey} data={selectedRunHeatmapData} options={heatmapOptions} />
+                    ) : (
+                      <div className="resume-chart-placeholder" aria-hidden="true" />
+                    )}
                   </div>
                 ) : (
                   <div className="posting-empty">
@@ -407,7 +451,11 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
               )}
               {selectedRunRadarData.length > 0 ? (
                 <div className="resume-radar-chart">
-                  <RadarChart data={selectedRunRadarData} options={radarOptions} />
+                  {canRenderCharts ? (
+                    <RadarChart data={selectedRunRadarData} options={radarOptions} />
+                  ) : (
+                    <div className="resume-chart-placeholder" aria-hidden="true" />
+                  )}
                 </div>
               ) : null}
             </div>
@@ -425,11 +473,12 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
         modalHeading="Review"
         open={isCommentsModalOpen}
         passiveModal
+        selectorPrimaryFocus={modalPrimaryFocusSelector}
         size="lg"
         onRequestClose={() => setIsCommentsModalOpen(false)}
       >
         {selectedRun ? (
-          <div className="resume-comments-layout">
+          <div className="resume-comments-layout" data-app-modal-primary-focus tabIndex={-1}>
             <div className="resume-review-tabs">
               <Tabs>
                 <TabList aria-label="Resume review details" size="sm">
@@ -451,6 +500,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                       previewContent={
                         resumeTextViewMode === "preview" && resumeMarkdownDocument ? (
                           <ResumeFormattedReviewDocument
+                            bulletNumberIndexes={reviewBulletNumberIndexes}
                             beforeContent={
                               hasResumeReadabilityWarning ? (
                                 <div className="resume-ats-warning">
@@ -468,6 +518,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                             onBulletHover={handleResumeBulletHover}
                             onHighlightClick={handleResumeCommentActivate}
                             scrollRequest={reviewScrollRequest}
+                            selectedBulletIndex={selectedReviewBulletIndex}
                             text={selectedRun.parsedText}
                           />
                         ) : null
@@ -477,6 +528,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                       rawContent={
                         resumeTextViewMode === "raw" ? (
                           <ResumeReviewDocument
+                            bulletNumberIndexes={reviewBulletNumberIndexes}
                             bulletRanges={selectedRunBulletRanges}
                             commentCards={visibleResumeReviewCards}
                             expandedCommentId={expandedCommentId}
@@ -485,6 +537,7 @@ export const ResumeGraderPanel = memo(function ResumeGraderPanel({
                             onBulletHover={handleResumeBulletHover}
                             onHighlightClick={handleResumeCommentActivate}
                             scrollRequest={reviewScrollRequest}
+                            selectedBulletIndex={selectedReviewBulletIndex}
                             text={selectedRun.parsedText}
                           />
                         ) : null
@@ -1200,6 +1253,7 @@ function getResumeReviewScrollElement(element: HTMLElement) {
 
 function ResumeReviewDocument({
   bulletRanges,
+  bulletNumberIndexes,
   commentCards,
   expandedCommentId,
   highlightComments,
@@ -1207,9 +1261,11 @@ function ResumeReviewDocument({
   onBulletHover,
   onHighlightClick,
   scrollRequest,
+  selectedBulletIndex,
   text
 }: {
   bulletRanges: ResumeReviewBulletRange[];
+  bulletNumberIndexes: ReadonlySet<number>;
   commentCards: ResumeReviewComment[];
   expandedCommentId: string | null;
   highlightComments: ResumeReviewComment[];
@@ -1217,11 +1273,16 @@ function ResumeReviewDocument({
   onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
   scrollRequest: ResumeReviewScrollRequest | null;
+  selectedBulletIndex: number | null;
   text: string;
 }) {
   const segments = useMemo(
     () => getResumeTextSegments(text, highlightComments, bulletRanges),
     [bulletRanges, highlightComments, text]
+  );
+  const bulletNumberSegmentIndexes = useMemo(
+    () => getResumeBulletNumberSegmentIndexes(segments, bulletNumberIndexes),
+    [bulletNumberIndexes, segments]
   );
 
   return (
@@ -1241,9 +1302,11 @@ function ResumeReviewDocument({
               onBulletClick={onBulletClick}
               onBulletHover={onBulletHover}
               onHighlightClick={onHighlightClick}
+              selectedBulletIndex={selectedBulletIndex}
               segment={segment}
               setClickedHighlightRef={setClickedHighlightRef}
               setHighlightRef={setHighlightRef}
+              showBulletNumberTooltip={bulletNumberSegmentIndexes.has(segmentIndex)}
             />
           ))}
         </pre>
@@ -1255,6 +1318,7 @@ function ResumeReviewDocument({
 function ResumeFormattedReviewDocument({
   beforeContent,
   bulletRanges,
+  bulletNumberIndexes,
   commentCards,
   document,
   expandedCommentId,
@@ -1263,10 +1327,12 @@ function ResumeFormattedReviewDocument({
   onBulletHover,
   onHighlightClick,
   scrollRequest,
+  selectedBulletIndex,
   text
 }: {
   beforeContent?: ReactNode;
   bulletRanges: ResumeReviewBulletRange[];
+  bulletNumberIndexes: ReadonlySet<number>;
   commentCards: ResumeReviewComment[];
   document: ParsedResumeDocument;
   expandedCommentId: string | null;
@@ -1275,6 +1341,7 @@ function ResumeFormattedReviewDocument({
   onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
   scrollRequest: ResumeReviewScrollRequest | null;
+  selectedBulletIndex: number | null;
   text: string;
 }) {
   const locator = createResumeTextLocator(text);
@@ -1299,6 +1366,7 @@ function ResumeFormattedReviewDocument({
               onBulletClick,
               onBulletHover,
               onHighlightClick,
+              selectedBulletIndex,
               segments,
               setClickedHighlightRef,
               setHighlightRef
@@ -1328,6 +1396,7 @@ function ResumeFormattedReviewDocument({
               onBulletClick,
               onBulletHover,
               onHighlightClick,
+              selectedBulletIndex,
               segments,
               setClickedHighlightRef,
               setHighlightRef
@@ -1369,6 +1438,12 @@ function ResumeFormattedReviewDocument({
                                 <li
                                   className={
                                     renderedBullet.bulletIndex === null ? undefined : "resume-review-formatted-bullet"
+                                  }
+                                  data-review-bullet-number={
+                                    renderedBullet.bulletIndex !== null &&
+                                    bulletNumberIndexes.has(renderedBullet.bulletIndex)
+                                      ? renderedBullet.bulletIndex
+                                      : undefined
                                   }
                                   data-resume-bullet-index={renderedBullet.bulletIndex ?? undefined}
                                   key={`${blockKey}-bullet-${bulletIndex}`}
@@ -1419,6 +1494,7 @@ function renderReviewTextSegments({
   onBulletClick,
   onBulletHover,
   onHighlightClick,
+  selectedBulletIndex,
   segments,
   setClickedHighlightRef,
   setHighlightRef
@@ -1429,6 +1505,7 @@ function renderReviewTextSegments({
   onBulletClick: (bulletIndex: number) => void;
   onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
+  selectedBulletIndex: number | null;
   segments: ResumeTextSegment[];
   setClickedHighlightRef: SetResumeReviewClickedHighlightRef;
   setHighlightRef: SetResumeReviewHighlightRef;
@@ -1442,6 +1519,7 @@ function renderReviewTextSegments({
       onBulletClick={onBulletClick}
       onBulletHover={onBulletHover}
       onHighlightClick={onHighlightClick}
+      selectedBulletIndex={selectedBulletIndex}
       segment={segment}
       setClickedHighlightRef={setClickedHighlightRef}
       setHighlightRef={setHighlightRef}
@@ -1456,9 +1534,11 @@ function ResumeReviewTextSegment({
   onBulletClick,
   onBulletHover,
   onHighlightClick,
+  selectedBulletIndex,
   segment,
   setClickedHighlightRef,
-  setHighlightRef
+  setHighlightRef,
+  showBulletNumberTooltip = false
 }: {
   expandedCommentId: string | null;
   highlightKey: string;
@@ -1466,10 +1546,14 @@ function ResumeReviewTextSegment({
   onBulletClick: (bulletIndex: number) => void;
   onBulletHover: (bulletIndex: number | null) => void;
   onHighlightClick: (commentId: string) => void;
+  selectedBulletIndex: number | null;
   segment: ResumeTextSegment;
   setClickedHighlightRef: SetResumeReviewClickedHighlightRef;
   setHighlightRef: SetResumeReviewHighlightRef;
+  showBulletNumberTooltip?: boolean;
 }) {
+  const isSelectedBulletSegment = segment.bulletIndex !== null && segment.bulletIndex === selectedBulletIndex;
+
   if (segment.comments.length === 0) {
     if (segment.bulletIndex === null) {
       return <span>{segment.text}</span>;
@@ -1480,6 +1564,8 @@ function ResumeReviewTextSegment({
     return (
       <span
         className="resume-review-bullet-text"
+        data-review-bullet-number={showBulletNumberTooltip ? bulletIndex : undefined}
+        data-review-state={isSelectedBulletSegment ? "selected" : undefined}
         data-resume-bullet-index={bulletIndex}
         role="button"
         tabIndex={0}
@@ -1503,6 +1589,7 @@ function ResumeReviewTextSegment({
     segment.comments.find((candidate) => candidate.isHoverPreview) ??
     segment.comments[0];
   const isExpanded = comment.id === expandedCommentId;
+  const highlightState = isSelectedBulletSegment ? "selected" : comment.isHoverPreview ? "hover" : "highlighted";
   const registeredCommentIds = new Set([
     ...segment.anchorCommentIds,
     ...segment.comments.map((segmentComment) => segmentComment.id)
@@ -1517,6 +1604,10 @@ function ResumeReviewTextSegment({
       aria-controls={isExpanded ? `resume-review-comment-${comment.id}` : undefined}
       aria-expanded={isExpanded}
       className={`resume-review-highlight${isExpanded ? " resume-review-highlight--expanded" : ""}`}
+      data-review-bullet-number={
+        showBulletNumberTooltip && segment.bulletIndex !== null ? segment.bulletIndex : undefined
+      }
+      data-review-state={highlightState}
       data-review-tone={comment.isHoverPreview ? "hover" : comment.colorIndex}
       data-resume-bullet-index={segment.bulletIndex ?? undefined}
       ref={(element) => {
@@ -1566,6 +1657,32 @@ function ResumeReviewTextSegment({
       {segment.text}
     </span>
   );
+}
+
+function getResumeBulletNumberSegmentIndexes(segments: ResumeTextSegment[], bulletNumberIndexes: ReadonlySet<number>) {
+  const indexes = new Set<number>();
+  const foundBulletIndexes = new Set<number>();
+
+  if (bulletNumberIndexes.size === 0) {
+    return indexes;
+  }
+
+  for (const [segmentIndex, segment] of segments.entries()) {
+    if (
+      segment.bulletIndex !== null &&
+      bulletNumberIndexes.has(segment.bulletIndex) &&
+      !foundBulletIndexes.has(segment.bulletIndex)
+    ) {
+      indexes.add(segmentIndex);
+      foundBulletIndexes.add(segment.bulletIndex);
+    }
+
+    if (foundBulletIndexes.size === bulletNumberIndexes.size) {
+      break;
+    }
+  }
+
+  return indexes;
 }
 
 function getResumeTextSegments(

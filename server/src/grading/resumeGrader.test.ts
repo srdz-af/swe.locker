@@ -102,6 +102,26 @@ describe("gradeResume", () => {
     expect(getRangeText(parsedText, result.resumeItems[1].description)).toBe("Coach");
   });
 
+  it("stops a bullet before generic section headings and skill rows", () => {
+    const parsedText =
+      "Projects\nCommunity Connect | Android Developer Jan 2025 - May 2025\n• Built an Android app focused on emergency reporting with location sharing and evidence capture.\n• Added offline support using SQLite for low-connectivity scenarios.\nTechnical Skills\nLanguages: Java, C#, C++, Python, PHP, JavaScript, HTML/CSS, Kotlin\nFrameworks & Libraries: React, Node.js, Express, WinForms, Bootstrap\nDatabases: MongoDB, PostgreSQL, MySQL, Oracle, SQL Server, SQLite\nAchievements & Competitions\nParticipant - ICPC Programming Contest\nCompetitive Programming | 2024 - Present\n• Qualified for the ICPC World Finals after securing a regional top placement";
+    const result = gradeResume({
+      sourceName: "resume.pdf",
+      parsedText
+    });
+    const bullets = result.resumeItems.flatMap((item) => item.bullets);
+
+    expect(bullets).toHaveLength(3);
+    expect(getRangeText(parsedText, bullets[1].range)).toBe(
+      "Added offline support using SQLite for low-connectivity scenarios."
+    );
+    expect(getRangeText(parsedText, bullets[1].range)).not.toContain("Technical Skills");
+    expect(getRangeText(parsedText, bullets[1].range)).not.toContain("Languages:");
+    expect(getRangeText(parsedText, result.resumeItems[1].title)).toBe("Participant - ICPC Programming Contest");
+    expect(getRangeText(parsedText, result.resumeItems[1].description)).toBe("Competitive Programming");
+    expect(getRangeText(parsedText, result.resumeItems[1].date)).toBe("2024 - Present");
+  });
+
   it("calculates the grade as the rounded average of metric scores", () => {
     expect(
       calculateResumeGrade([

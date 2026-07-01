@@ -1,7 +1,9 @@
 import { prisma } from "../db/prisma.js";
 import { HttpError } from "../errors.js";
-import type { SourceConfig } from "../generated/prisma/client.js";
-import { parseSimplifyJobsReadme } from "../parser/simplifyJobsParser.js";
+import type { FetchRun, SourceConfig } from "../generated/prisma/client.js";
+import { parseSimplifyJobsReadme, type ParsedPosting } from "../parser/simplifyJobsParser.js";
+import { loadSourceRepositoryFiles, type SourceRepositorySnapshot } from "../sources/gitSourceCache.js";
+import { getSourceDefinition, type SourceDefinition } from "../sources/sourceDefinitions.js";
 import { toFetchRunDto, toSourceConfigDto } from "./mappers.js";
 import { ensureSourceConfigs } from "./sourceConfigService.js";
 
@@ -13,6 +15,22 @@ type SourceRefreshResult = {
 type RefreshResult = {
   sourceConfigs: Array<ReturnType<typeof toSourceConfigDto>>;
   fetchRuns: Array<ReturnType<typeof toFetchRunDto>>;
+};
+
+type SourceConfigWithDefinition = {
+  sourceConfig: SourceConfig;
+  sourceDefinition: SourceDefinition;
+};
+
+type SourceRepositoryGroup = {
+  repositoryCloneUrl: string;
+  repositoryBranch: string;
+  sources: SourceConfigWithDefinition[];
+};
+
+type PostingSyncResult = {
+  newPostings: number;
+  updatedPostings: number;
 };
 
 let refreshInFlight: Promise<RefreshResult> | null = null;
@@ -56,14 +74,28 @@ export async function refreshSourceIfEmpty() {
 
 async function runRefresh(): Promise<RefreshResult> {
   const sourceConfigs = (await ensureSourceConfigs()).filter((sourceConfig) => sourceConfig.enabled);
+  const sourceEntries: SourceConfigWithDefinition[] = [];
   const results: SourceRefreshResult[] = [];
   const errors: string[] = [];
 
   for (const sourceConfig of sourceConfigs) {
+    const sourceDefinition = getSourceDefinition(sourceConfig.sourceKey);
+    if (!sourceDefinition) {
+      errors.push(`Missing source definition for ${sourceConfig.sourceKey}.`);
+      continue;
+    }
+
+    sourceEntries.push({
+      sourceConfig,
+      sourceDefinition
+    });
+  }
+
+  for (const group of groupSourcesByRepository(sourceEntries)) {
     try {
-      results.push(await refreshSingleSource(sourceConfig));
+      results.push(...(await refreshRepositoryGroup(group)));
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : `Refresh failed for ${sourceConfig.displayName}.`);
+      errors.push(error instanceof Error ? error.message : `Refresh failed for ${group.repositoryCloneUrl}.`);
     }
   }
 
@@ -77,104 +109,94 @@ async function runRefresh(): Promise<RefreshResult> {
   };
 }
 
-async function refreshSingleSource(sourceConfig: SourceConfig): Promise<SourceRefreshResult> {
-  const fetchRun = await prisma.fetchRun.create({
-    data: {
-      sourceConfigId: sourceConfig.id,
-      status: "RUNNING"
-    }
-  });
+function groupSourcesByRepository(sourceEntries: SourceConfigWithDefinition[]) {
+  const groups = new Map<string, SourceRepositoryGroup>();
+
+  for (const source of sourceEntries) {
+    const key = `${source.sourceDefinition.repositoryCloneUrl}\u0000${source.sourceDefinition.repositoryBranch}`;
+    const group =
+      groups.get(key) ??
+      {
+        repositoryCloneUrl: source.sourceDefinition.repositoryCloneUrl,
+        repositoryBranch: source.sourceDefinition.repositoryBranch,
+        sources: []
+      };
+
+    group.sources.push(source);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()];
+}
+
+async function refreshRepositoryGroup(group: SourceRepositoryGroup): Promise<SourceRefreshResult[]> {
+  const fetchRuns = new Map<string, FetchRun>();
+  const results: SourceRefreshResult[] = [];
+  const errors: string[] = [];
+
+  for (const { sourceConfig } of group.sources) {
+    fetchRuns.set(
+      sourceConfig.id,
+      await prisma.fetchRun.create({
+        data: {
+          sourceConfigId: sourceConfig.id,
+          status: "RUNNING"
+        }
+      })
+    );
+  }
+
+  let repositorySnapshot: SourceRepositorySnapshot;
 
   try {
-    const response = await fetch(sourceConfig.rawReadmeUrl, {
-      headers: {
-        "User-Agent": "swe.locker local internship tracker"
-      }
+    repositorySnapshot = await loadSourceRepositoryFiles({
+      repositoryCloneUrl: group.repositoryCloneUrl,
+      repositoryBranch: group.repositoryBranch,
+      filePaths: [...new Set(group.sources.map(({ sourceDefinition }) => sourceDefinition.repositoryFilePath))]
     });
+  } catch (error) {
+    await Promise.all(
+      [...fetchRuns.values()].map((fetchRun) => markFetchRunFailed(fetchRun, error))
+    );
+    throw error;
+  }
 
-    if (!response.ok) {
-      throw new Error(`README fetch failed with HTTP ${response.status}`);
+  for (const source of group.sources) {
+    const fetchRun = fetchRuns.get(source.sourceConfig.id);
+    if (!fetchRun) {
+      errors.push(`Missing fetch run for ${source.sourceConfig.displayName}.`);
+      continue;
     }
 
-    const markdown = await response.text();
-    const parsedPostings = parseSimplifyJobsReadme(markdown, sourceConfig.season);
-    const seenKeys = new Set<string>();
-    let newPostings = 0;
-    let updatedPostings = 0;
-    const now = new Date();
-
-    for (const posting of parsedPostings) {
-      seenKeys.add(posting.normalizedKey);
-      const existingPosting = await prisma.jobPosting.findUnique({
-        where: {
-          normalizedKey: posting.normalizedKey
-        }
-      });
-
-      if (existingPosting) {
-        updatedPostings += 1;
-        await prisma.jobPosting.update({
-          where: {
-            id: existingPosting.id
-          },
-          data: {
-            sourceConfigId: sourceConfig.id,
-            season: posting.season,
-            category: posting.category,
-            company: posting.company,
-            normalizedCompanyName: posting.normalizedCompanyName,
-            role: posting.role,
-            locations: JSON.stringify(posting.locations),
-            locationText: posting.locations.join(" | "),
-            applicationUrls: JSON.stringify(posting.applicationUrls),
-            primaryApplicationUrl: posting.primaryApplicationUrl,
-            simplifyUrl: posting.simplifyUrl,
-            ageText: posting.ageText,
-            rawRowContent: posting.rawRowContent,
-            lastSeenAt: now,
-            isNewToday: isNewSince(existingPosting.firstSeenAt, now),
-            isActive: true,
-            doesNotOfferSponsorship: posting.doesNotOfferSponsorship,
-            requiresUsCitizenship: posting.requiresUsCitizenship,
-            isClosed: posting.isClosed,
-            isFaang: posting.isFaang,
-            requiresAdvancedDegree: posting.requiresAdvancedDegree
-          }
-        });
-      } else {
-        newPostings += 1;
-        await prisma.jobPosting.create({
-          data: {
-            sourceConfigId: sourceConfig.id,
-            season: posting.season,
-            category: posting.category,
-            company: posting.company,
-            normalizedCompanyName: posting.normalizedCompanyName,
-            role: posting.role,
-            locations: JSON.stringify(posting.locations),
-            locationText: posting.locations.join(" | "),
-            applicationUrls: JSON.stringify(posting.applicationUrls),
-            primaryApplicationUrl: posting.primaryApplicationUrl,
-            simplifyUrl: posting.simplifyUrl,
-            ageText: posting.ageText,
-            normalizedKey: posting.normalizedKey,
-            rawRowContent: posting.rawRowContent,
-            firstSeenAt: now,
-            lastSeenAt: now,
-            isNewToday: true,
-            isActive: true,
-            doesNotOfferSponsorship: posting.doesNotOfferSponsorship,
-            requiresUsCitizenship: posting.requiresUsCitizenship,
-            isClosed: posting.isClosed,
-            isFaang: posting.isFaang,
-            requiresAdvancedDegree: posting.requiresAdvancedDegree
-          }
-        });
-      }
+    try {
+      results.push(await refreshSourceFromRepositoryFile(source, fetchRun, repositorySnapshot));
+    } catch (error) {
+      await markFetchRunFailed(fetchRun, error);
+      errors.push(error instanceof Error ? error.message : `Refresh failed for ${source.sourceConfig.displayName}.`);
     }
+  }
 
-    await markMissingPostingsInactive(sourceConfig.id, seenKeys);
+  if (errors.length > 0) {
+    throw new Error(errors.join(" "));
+  }
 
+  return results;
+}
+
+async function refreshSourceFromRepositoryFile(
+  source: SourceConfigWithDefinition,
+  fetchRun: FetchRun,
+  repositorySnapshot: SourceRepositorySnapshot
+): Promise<SourceRefreshResult> {
+  const file = repositorySnapshot.files.get(source.sourceDefinition.repositoryFilePath);
+  if (!file) {
+    throw new Error(`Missing ${source.sourceDefinition.repositoryFilePath} in ${repositorySnapshot.repositoryPath}.`);
+  }
+
+  const now = new Date();
+  const checkedSourceConfig = await updateSourceRepositoryState(source.sourceConfig, repositorySnapshot, now);
+
+  if (!(await shouldParseSourceFile(checkedSourceConfig, file.blobSha))) {
     const completedFetchRun = await prisma.fetchRun.update({
       where: {
         id: fetchRun.id
@@ -182,33 +204,198 @@ async function refreshSingleSource(sourceConfig: SourceConfig): Promise<SourceRe
       data: {
         completedAt: new Date(),
         status: "SUCCESS",
-        postingsFound: parsedPostings.length,
-        newPostings,
-        updatedPostings
+        postingsFound: 0,
+        newPostings: 0,
+        updatedPostings: 0
       }
     });
 
     return {
-      sourceConfig: toSourceConfigDto(sourceConfig),
+      sourceConfig: toSourceConfigDto(checkedSourceConfig),
       fetchRun: toFetchRunDto(completedFetchRun)
     };
-  } catch (error) {
-    const completedFetchRun = await prisma.fetchRun.update({
+  }
+
+  const parsedPostings = parseSourcePostings(file.content, source.sourceDefinition, checkedSourceConfig.season).filter(
+    (posting) => source.sourceDefinition.includeClosedPostings || !posting.isClosed
+  );
+  const { newPostings, updatedPostings } = await syncParsedPostings(checkedSourceConfig, parsedPostings, now);
+  const parsedSourceConfig = await prisma.sourceConfig.update({
+    where: {
+      id: checkedSourceConfig.id
+    },
+    data: {
+      lastContentSha: file.blobSha,
+      lastParsedAt: now
+    }
+  });
+  const completedFetchRun = await prisma.fetchRun.update({
+    where: {
+      id: fetchRun.id
+    },
+    data: {
+      completedAt: new Date(),
+      status: "SUCCESS",
+      postingsFound: parsedPostings.length,
+      newPostings,
+      updatedPostings
+    }
+  });
+
+  return {
+    sourceConfig: toSourceConfigDto(parsedSourceConfig),
+    fetchRun: toFetchRunDto(completedFetchRun)
+  };
+}
+
+async function updateSourceRepositoryState(
+  sourceConfig: SourceConfig,
+  repositorySnapshot: SourceRepositorySnapshot,
+  now: Date
+) {
+  return prisma.sourceConfig.update({
+    where: {
+      id: sourceConfig.id
+    },
+    data: {
+      lastRemoteCommitSha: repositorySnapshot.remoteCommitSha,
+      lastCheckedAt: now,
+      ...(repositorySnapshot.fetched ? { lastFetchedAt: now } : {})
+    }
+  });
+}
+
+async function shouldParseSourceFile(sourceConfig: SourceConfig, blobSha: string) {
+  if (sourceConfig.lastContentSha !== blobSha) {
+    return true;
+  }
+
+  const [postingCount, successfulFetchCount] = await Promise.all([
+    prisma.jobPosting.count({
       where: {
-        id: fetchRun.id
-      },
-      data: {
-        completedAt: new Date(),
-        status: "FAILURE",
-        errorMessage: error instanceof Error ? error.message : "Unknown refresh error"
+        sourceConfigId: sourceConfig.id
+      }
+    }),
+    prisma.fetchRun.count({
+      where: {
+        sourceConfigId: sourceConfig.id,
+        status: "SUCCESS"
+      }
+    })
+  ]);
+
+  return postingCount === 0 || successfulFetchCount === 0;
+}
+
+async function syncParsedPostings(
+  sourceConfig: SourceConfig,
+  parsedPostings: ParsedPosting[],
+  now: Date
+): Promise<PostingSyncResult> {
+  const seenKeys = new Set<string>();
+  let newPostings = 0;
+  let updatedPostings = 0;
+
+  for (const posting of parsedPostings) {
+    seenKeys.add(posting.normalizedKey);
+    const existingPosting = await prisma.jobPosting.findUnique({
+      where: {
+        sourceConfigId_normalizedKey: {
+          sourceConfigId: sourceConfig.id,
+          normalizedKey: posting.normalizedKey
+        }
       }
     });
 
-    if (error instanceof HttpError) {
-      throw error;
+    if (existingPosting) {
+      updatedPostings += 1;
+      await prisma.jobPosting.update({
+        where: {
+          id: existingPosting.id
+        },
+        data: {
+          sourceConfigId: sourceConfig.id,
+          season: posting.season,
+          category: posting.category,
+          company: posting.company,
+          normalizedCompanyName: posting.normalizedCompanyName,
+          role: posting.role,
+          locations: JSON.stringify(posting.locations),
+          locationText: posting.locations.join(" | "),
+          applicationUrls: JSON.stringify(posting.applicationUrls),
+          primaryApplicationUrl: posting.primaryApplicationUrl,
+          simplifyUrl: posting.simplifyUrl,
+          ageText: posting.ageText,
+          rawRowContent: posting.rawRowContent,
+          lastSeenAt: now,
+          isNewToday: isNewSince(existingPosting.firstSeenAt, now),
+          isActive: true,
+          doesNotOfferSponsorship: posting.doesNotOfferSponsorship,
+          requiresUsCitizenship: posting.requiresUsCitizenship,
+          isClosed: posting.isClosed,
+          isFaang: posting.isFaang,
+          requiresAdvancedDegree: posting.requiresAdvancedDegree
+        }
+      });
+    } else {
+      newPostings += 1;
+      await prisma.jobPosting.create({
+        data: {
+          sourceConfigId: sourceConfig.id,
+          season: posting.season,
+          category: posting.category,
+          company: posting.company,
+          normalizedCompanyName: posting.normalizedCompanyName,
+          role: posting.role,
+          locations: JSON.stringify(posting.locations),
+          locationText: posting.locations.join(" | "),
+          applicationUrls: JSON.stringify(posting.applicationUrls),
+          primaryApplicationUrl: posting.primaryApplicationUrl,
+          simplifyUrl: posting.simplifyUrl,
+          ageText: posting.ageText,
+          normalizedKey: posting.normalizedKey,
+          rawRowContent: posting.rawRowContent,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          isNewToday: true,
+          isActive: true,
+          doesNotOfferSponsorship: posting.doesNotOfferSponsorship,
+          requiresUsCitizenship: posting.requiresUsCitizenship,
+          isClosed: posting.isClosed,
+          isFaang: posting.isFaang,
+          requiresAdvancedDegree: posting.requiresAdvancedDegree
+        }
+      });
     }
+  }
 
-    throw new HttpError(500, toFetchRunDto(completedFetchRun).errorMessage ?? "Refresh failed.");
+  await markMissingPostingsInactive(sourceConfig.id, seenKeys);
+
+  return {
+    newPostings,
+    updatedPostings
+  };
+}
+
+async function markFetchRunFailed(fetchRun: FetchRun, error: unknown) {
+  return prisma.fetchRun.update({
+    where: {
+      id: fetchRun.id
+    },
+    data: {
+      completedAt: new Date(),
+      status: "FAILURE",
+      errorMessage: error instanceof Error ? error.message : "Unknown refresh error"
+    }
+  });
+}
+
+function parseSourcePostings(markdown: string, sourceDefinition: SourceDefinition, season: string) {
+  switch (sourceDefinition.parser) {
+    case "simplify-readme":
+      return parseSimplifyJobsReadme(markdown, season, {
+        tableSchema: sourceDefinition.tableSchema
+      });
   }
 }
 

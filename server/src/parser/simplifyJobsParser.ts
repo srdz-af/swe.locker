@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { buildPostingKey, compactWhitespace, normalizeCompanyName, stripMetadataMarkers } from "../domain/normalize.js";
+import type { SourceTableSchema } from "../sources/sourceDefinitions.js";
 
 export type ParsedPosting = {
   season: string;
@@ -34,9 +35,23 @@ type TableColumnIndexes = {
   age: number;
 };
 
-export function parseSimplifyJobsReadme(markdown: string, season: string) {
+const defaultTableSchema: SourceTableSchema = {
+  company: ["company"],
+  role: ["role"],
+  location: ["location"],
+  application: ["application"],
+  age: ["age"]
+};
+
+export function parseSimplifyJobsReadme(
+  markdown: string,
+  season: string,
+  options: {
+    tableSchema?: SourceTableSchema;
+  } = {}
+) {
   const tables = extractTableBlocks(markdown);
-  return tables.flatMap((table) => parseTable(table, season));
+  return tables.flatMap((table) => parseTable(table, season, options.tableSchema ?? defaultTableSchema));
 }
 
 function extractTableBlocks(markdown: string) {
@@ -87,10 +102,10 @@ function parseCategoryHeading(line: string) {
   return heading || null;
 }
 
-function parseTable(table: TableBlock, season: string) {
+function parseTable(table: TableBlock, season: string, tableSchema: SourceTableSchema) {
   const $ = cheerio.load(table.html);
   const postings: ParsedPosting[] = [];
-  const columnIndexes = getTableColumnIndexes($);
+  const columnIndexes = getTableColumnIndexes($, tableSchema);
   let previousCompany: string | null = null;
 
   $("tbody tr").each((_index, row) => {
@@ -154,22 +169,25 @@ function parseTable(table: TableBlock, season: string) {
   return postings;
 }
 
-function getTableColumnIndexes($: cheerio.CheerioAPI): TableColumnIndexes {
+function getTableColumnIndexes($: cheerio.CheerioAPI, tableSchema: SourceTableSchema): TableColumnIndexes {
   const headers = $("thead th")
     .toArray()
     .map((header) => compactWhitespace($(header).text()).toLowerCase());
 
   return {
-    company: findHeaderIndex(headers, "company", 0),
-    role: findHeaderIndex(headers, "role", 1),
-    location: findHeaderIndex(headers, "location", 2),
-    application: findHeaderIndex(headers, "application", 3),
-    age: findHeaderIndex(headers, "age", 4)
+    company: findHeaderIndex(headers, tableSchema.company, 0),
+    role: findHeaderIndex(headers, tableSchema.role, 1),
+    location: findHeaderIndex(headers, tableSchema.location, 2),
+    application: findHeaderIndex(headers, tableSchema.application, 3),
+    age: findHeaderIndex(headers, tableSchema.age, 4)
   };
 }
 
-function findHeaderIndex(headers: string[], name: string, fallbackIndex: number) {
-  const index = headers.findIndex((header) => header === name || header.includes(name));
+function findHeaderIndex(headers: string[], names: string[], fallbackIndex: number) {
+  const normalizedNames = names.map((name) => compactWhitespace(name).toLowerCase());
+  const index = headers.findIndex((header) =>
+    normalizedNames.some((name) => header === name || header.includes(name))
+  );
   return index >= 0 ? index : fallbackIndex;
 }
 

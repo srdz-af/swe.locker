@@ -1,7 +1,6 @@
 import {
   memo,
   type KeyboardEvent,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -12,9 +11,10 @@ import { Launch, Star, StarFilled } from "@carbon/icons-react";
 import type { JobPostingDto } from "../../../../shared/src/index";
 
 const postingListDesktopQuery = "(min-width: 66rem)";
-const postingRowEstimate = 116;
+const postingRowHeight = 108;
 const postingRowGap = 8;
-const postingRowOverscan = 6;
+const postingRowSize = postingRowHeight + postingRowGap;
+const postingRowOverscan = 14;
 
 type PostingCardProps = {
   isSelected: boolean;
@@ -126,10 +126,8 @@ export function VirtualizedPostingList({
   selectedPostingId: string | null;
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
-  const measuredRowsRef = useRef(new Map<string, number>());
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
-  const [measuredVersion, setMeasuredVersion] = useState(0);
   const [shouldVirtualize, setShouldVirtualize] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia(postingListDesktopQuery).matches
   );
@@ -161,7 +159,6 @@ export function VirtualizedPostingList({
     return () => resizeObserver.disconnect();
   }, [shouldVirtualize]);
 
-  const measuredRows = measuredVersion ? measuredRowsRef.current : measuredRowsRef.current;
   const virtualRows = useMemo(() => {
     if (!shouldVirtualize) {
       return {
@@ -174,46 +171,24 @@ export function VirtualizedPostingList({
       };
     }
 
-    const visibleStart = Math.max(0, scrollTop - postingRowEstimate * postingRowOverscan);
-    const visibleEnd = scrollTop + Math.max(viewportHeight, postingRowEstimate * 4) + postingRowEstimate * postingRowOverscan;
+    const visibleStart = Math.max(0, scrollTop - postingRowSize * postingRowOverscan);
+    const visibleEnd = scrollTop + Math.max(viewportHeight, postingRowSize * 4) + postingRowSize * postingRowOverscan;
+    const startIndex = Math.max(0, Math.floor(visibleStart / postingRowSize));
+    const endIndex = Math.min(postings.length - 1, Math.ceil(visibleEnd / postingRowSize));
     const rows: Array<{ index: number; posting: JobPostingDto; start: number }> = [];
-    let offset = 0;
 
-    for (const [index, posting] of postings.entries()) {
-      const measuredHeight = measuredRows.get(posting.id);
-      const rowSize = (measuredHeight ?? postingRowEstimate) + postingRowGap;
-      const rowEnd = offset + rowSize;
-
-      if (rowEnd >= visibleStart && offset <= visibleEnd) {
-        rows.push({
-          index,
-          posting,
-          start: offset
-        });
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      const posting = postings[index];
+      if (posting) {
+        rows.push({ index, posting, start: index * postingRowSize });
       }
-
-      offset = rowEnd;
     }
 
     return {
       rows,
-      totalSize: Math.max(0, offset - postingRowGap)
+      totalSize: Math.max(0, postings.length * postingRowSize - postingRowGap)
     };
-  }, [measuredRows, postings, scrollTop, shouldVirtualize, viewportHeight]);
-
-  const setMeasuredRow = useCallback((postingId: string, element: HTMLDivElement | null) => {
-    if (!element) {
-      return;
-    }
-
-    const measuredHeight = Math.ceil(element.getBoundingClientRect().height);
-    if (measuredHeight <= 0 || measuredRowsRef.current.get(postingId) === measuredHeight) {
-      return;
-    }
-
-    measuredRowsRef.current.set(postingId, measuredHeight);
-    setMeasuredVersion((currentVersion) => currentVersion + 1);
-  }, []);
+  }, [postings, scrollTop, shouldVirtualize, viewportHeight]);
 
   return (
     <div
@@ -235,7 +210,6 @@ export function VirtualizedPostingList({
             <div
               className="posting-list__row"
               key={posting.id}
-              ref={(element) => setMeasuredRow(posting.id, element)}
               style={{ transform: `translateY(${start}px)` }}
             >
               <PostingCard

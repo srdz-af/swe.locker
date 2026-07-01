@@ -239,22 +239,22 @@ export async function listApplicationActivity(input: { year?: number } = {}) {
   const endExclusive = new Date(endDate);
   endExclusive.setUTCDate(endDate.getUTCDate() + 1);
 
-  const events = await prisma.applicationEvent.findMany({
+  const applications = await prisma.application.findMany({
     where: {
       ownerKey: LOCAL_OWNER_KEY,
-      eventDate: {
+      createdAt: {
         gte: startDate,
         lt: endExclusive
       }
     },
     select: {
-      eventDate: true
+      createdAt: true
     }
   });
 
   const countsByDate = new Map<string, number>();
-  for (const event of events) {
-    const key = toDateKey(event.eventDate);
+  for (const application of applications) {
+    const key = toDateKey(application.createdAt);
     countsByDate.set(key, (countsByDate.get(key) ?? 0) + 1);
   }
 

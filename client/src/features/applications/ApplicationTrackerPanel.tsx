@@ -22,7 +22,7 @@ import type {
   UpdateApplicationDetailsRequest
 } from "../../../../shared/src/index";
 import { TextModePanel, type TextMode } from "../../components/TextModePanel";
-import { applicationStatuses, getApplicationStatusColor } from "../../constants";
+import { applicationStatuses, getApplicationStatusColor, modalPrimaryFocusSelector } from "../../constants";
 import { formatDate } from "../../utils/format";
 
 type InterviewDateInput = {
@@ -178,7 +178,7 @@ function ApplicationDetailsPanel({
   const hasMissingSubmittedResumeRun = Boolean(submittedResumeRunId && !submittedResumeRun);
 
   return (
-    <div className="application-details-panel">
+    <div className="application-details-panel" data-app-modal-primary-focus tabIndex={-1}>
       <div className="section-header">
         <div>
           <h2>{application.company}</h2>
@@ -600,6 +600,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
         modalAriaLabel={selectedApplication ? `${selectedApplication.company} ${selectedApplication.role}` : "Application details"}
         open={Boolean(selectedApplication && isDetailsModalOpen)}
         passiveModal
+        selectorPrimaryFocus={modalPrimaryFocusSelector}
         size="lg"
         onRequestClose={() => setIsDetailsModalOpen(false)}
       >

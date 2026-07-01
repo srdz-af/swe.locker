@@ -138,13 +138,16 @@
 
 .tracking-results-controls {
   display: flex;
+  align-items: center;
+  gap: 0.25rem;
   justify-content: flex-end;
 }
 
 .tracking-results-chart {
   inline-size: 100%;
   min-inline-size: 0;
-  block-size: calc(var(--tracking-results-chart-height, 12rem) + 1.5rem);
+  block-size: 100%;
+  min-block-size: calc(var(--tracking-results-chart-min-height, 14rem) + 1.5rem);
   overflow: visible;
   padding-block: 0.75rem;
 }
@@ -154,9 +157,11 @@
 }
 
 .tracking-results-chart .chart-holder,
-.tracking-results-chart .cds--chart-holder {
-  block-size: var(--tracking-results-chart-height, 12rem);
-  min-block-size: var(--tracking-results-chart-height, 12rem);
+.tracking-results-chart .cds--chart-holder,
+.tracking-results-chart__core {
+  block-size: 100%;
+  min-block-size: var(--tracking-results-chart-min-height, 14rem);
+  inline-size: 100%;
   overflow: visible;
 }
 

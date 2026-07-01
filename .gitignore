@@ -11,6 +11,7 @@ GOAL.md
 dist/
 generated/
 server/src/generated/
+.cache/
 
 # Local databases
 *.db

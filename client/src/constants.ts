@@ -3,6 +3,7 @@ import type { ManualApplicationFormState } from "./types/app";
 
 export const themeStorageKey = "swe.locker.theme";
 export const darkPreferenceQuery = "(prefers-color-scheme: dark)";
+export const modalPrimaryFocusSelector = "[data-app-modal-primary-focus]";
 export const resumeAcceptedFileTypes = [
   ".pdf",
   ".docx",
@@ -35,11 +36,11 @@ export function getResumeGradeColor(grade: number | null | undefined) {
 }
 
 export const applicationStatusColors: Record<ApplicationStatus, string> = {
-  APPLIED: "#1192e8",
-  INTERVIEW: "#8a3ffc",
-  OFFER: "#24a148",
-  HIRED: "#009d9a",
-  REJECTED: "#d02670"
+  APPLIED: "#a8a8a8",
+  INTERVIEW: "#4589ff",
+  OFFER: "#42be65",
+  HIRED: "#24a148",
+  REJECTED: "#fa4d56"
 };
 
 export const applicationStatuses: Array<{ status: ApplicationStatus; label: string; color: string }> = [

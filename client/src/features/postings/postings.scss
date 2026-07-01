@@ -18,6 +18,7 @@
   position: absolute;
   inset-block-start: 0;
   inset-inline: 0;
+  block-size: 6.75rem;
 }
 
 .posting-card {
@@ -30,6 +31,11 @@
   cursor: pointer;
   outline: 2px solid transparent;
   outline-offset: -2px;
+}
+
+.posting-list--virtualized .posting-card {
+  block-size: 6.75rem;
+  overflow: hidden;
 }
 
 .posting-card:hover {
@@ -68,6 +74,9 @@
 
 .posting-title-line h3 {
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.42857;
@@ -87,12 +96,30 @@
   line-height: 1.42857;
 }
 
+.posting-list--virtualized .posting-role {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .posting-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 0.75rem;
   color: var(--app-text-muted);
   font-size: 0.875rem;
+}
+
+.posting-list--virtualized .posting-meta {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.posting-list--virtualized .posting-meta span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .posting-actions {

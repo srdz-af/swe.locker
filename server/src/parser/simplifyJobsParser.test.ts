@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canonicalizeUrl, normalizeCompanyName } from "../domain/normalize.js";
 import { parseSimplifyJobsReadme } from "./simplifyJobsParser.js";
+import { getSourceDefinitions } from "../sources/sourceDefinitions.js";
 
 const fixture = `
 ## 💻 Software Engineering Internship Roles
@@ -82,6 +83,75 @@ describe("parseSimplifyJobsReadme", () => {
     expect(posting?.simplifyUrl).toBe("https://simplify.jobs/p/acme-1?utm_source=GHList");
     expect(posting?.isFaang).toBe(true);
     expect(posting?.requiresAdvancedDegree).toBe(true);
+  });
+
+  it("uses source table schemas for off-season tables with a term column", () => {
+    const offSeasonSource = getSourceDefinitions().find((sourceDefinition) =>
+      sourceDefinition.sourceKey.endsWith("off-season")
+    );
+    const postings = parseSimplifyJobsReadme(
+      `
+## 💻 Software Engineering Internship Roles
+
+<table>
+<thead>
+<tr>
+<th>Company</th>
+<th>Role</th>
+<th>Location</th>
+<th>Term</th>
+<th>Application</th>
+<th>Age</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Acme</strong></td>
+<td>Software Engineer Intern</td>
+<td>New York, NY</td>
+<td>Fall 2026</td>
+<td><a href="https://jobs.example.com/acme">Apply</a></td>
+<td>3d</td>
+</tr>
+</tbody>
+</table>
+`,
+      "Summer 2026",
+      {
+        tableSchema: offSeasonSource?.tableSchema
+      }
+    );
+
+    expect(postings).toHaveLength(1);
+    expect(postings[0]?.primaryApplicationUrl).toBe("https://jobs.example.com/acme");
+    expect(postings[0]?.ageText).toBe("3d");
+    expect(postings[0]?.isClosed).toBe(false);
+  });
+});
+
+describe("source definitions", () => {
+  it("defines the three SimplifyJobs sources", () => {
+    const sourceDefinitions = getSourceDefinitions();
+
+    expect(sourceDefinitions.map((sourceDefinition) => sourceDefinition.sourceKey)).toEqual([
+      "simplifyjobs-summer-internships",
+      "simplifyjobs-summer-internships-off-season",
+      "simplifyjobs-summer-internships-inactive"
+    ]);
+    expect(sourceDefinitions.map((sourceDefinition) => sourceDefinition.includeClosedPostings)).toEqual([
+      false,
+      false,
+      true
+    ]);
+    expect(sourceDefinitions.map((sourceDefinition) => sourceDefinition.repositoryFilePath)).toEqual([
+      "README.md",
+      "README-Off-Season.md",
+      "README-Inactive.md"
+    ]);
+    expect(new Set(sourceDefinitions.map((sourceDefinition) => sourceDefinition.repositoryCloneUrl)).size).toBe(1);
+    expect(new Set(sourceDefinitions.map((sourceDefinition) => sourceDefinition.repositoryBranch))).toEqual(
+      new Set(["dev"])
+    );
   });
 });
 

@@ -1,14 +1,18 @@
 import {
   memo,
   type CSSProperties,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState
 } from "react";
-import { Checkbox, Tile } from "@carbon/react";
-import { AlluvialChart, DonutChart, RadarChart } from "@carbon/charts-react";
-import type { AlluvialChartOptions, ChartTabularData, DonutChartOptions, RadarChartOptions } from "@carbon/charts-react";
+import { Button, Checkbox, Tile } from "@carbon/react";
+import { Download } from "@carbon/icons-react";
+import { AlluvialChart as CarbonAlluvialChart, alluvial as carbonAlluvialConfig } from "@carbon/charts";
+import type { AlluvialChartOptions, ChartTabularData } from "@carbon/charts";
+import { DonutChart, RadarChart } from "@carbon/charts-react";
+import type { DonutChartOptions, RadarChartOptions } from "@carbon/charts-react";
 import type {
   ApplicationActivityDayDto,
   ApplicationDto,
@@ -20,19 +24,45 @@ import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatApplicationTooltipValue } from "../../utils/format";
 
 const applicationOutcomeColors = Object.fromEntries(applicationStatuses.map((option) => [option.label, option.color]));
+const carbonCompanyGradientLight = ["#002d9c", "#0f62fe", "#4589ff", "#8a3ffc", "#a56eff"];
+const carbonCompanyGradientDark = ["#33b1ff", "#4589ff", "#78a9ff", "#be95ff", "#d4bbff"];
+const trackingResultsAlluvialNodePadding = 8;
 
-const alluvialOutcomeColors = {
-  Applied: getApplicationStatusColor("APPLIED"),
-  Interview: getApplicationStatusColor("INTERVIEW"),
-  Offer: getApplicationStatusColor("OFFER"),
-  Rejected: getApplicationStatusColor("REJECTED")
-};
+// Carbon's default 24px minimum collapses link width when a 30rem chart has many company nodes.
+carbonAlluvialConfig.minNodePadding = Math.min(carbonAlluvialConfig.minNodePadding, trackingResultsAlluvialNodePadding);
 
-type AlluvialLinkElement = SVGPathElement & {
-  __data__?: {
-    group?: string;
-  };
-};
+function TrackingResultsAlluvialChart({
+  data,
+  onExporterChange,
+  options
+}: {
+  data: ChartTabularData;
+  onExporterChange?: (exporter: (() => void) | null) => void;
+  options: AlluvialChartOptions;
+}) {
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const chartContainer = chartContainerRef.current;
+    if (!chartContainer) {
+      return;
+    }
+
+    const chartHolder = document.createElement("div");
+    chartHolder.className = "chart-holder";
+    chartContainer.replaceChildren(chartHolder);
+    const chart = new CarbonAlluvialChart(chartHolder, { data, options });
+    onExporterChange?.(() => chart.services.domUtils.exportToPNG());
+
+    return () => {
+      onExporterChange?.(null);
+      chart.destroy();
+      chartContainer.replaceChildren();
+    };
+  }, [data, onExporterChange, options]);
+
+  return <div className="tracking-results-chart__core" ref={chartContainerRef} />;
+}
 
 type IncomingInterviewItem = {
   applicationId: string;
@@ -117,7 +147,7 @@ function getActivityMonthLabels(weeks: Array<Array<ApplicationActivityDayDto | n
 }
 
 function getActivitySummaryLabel(totalActivity: number) {
-  const unit = totalActivity === 1 ? "tracker update" : "tracker updates";
+  const unit = totalActivity === 1 ? "application tracked" : "applications tracked";
   return `${totalActivity} ${unit} in the last year`;
 }
 
@@ -335,16 +365,85 @@ function incrementAlluvialLink(
   });
 }
 
-function getAlluvialOutcomeColor(group: string | undefined) {
-  return alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? getApplicationStatusColor("APPLIED");
+function getAlluvialReviewStageColor(stage: string) {
+  const reviewStageColors: Record<string, string> = {
+    Interview: getApplicationStatusColor("INTERVIEW"),
+    "Resume pending": getApplicationStatusColor("APPLIED"),
+    "Resume rejected": getApplicationStatusColor("REJECTED")
+  };
+
+  return reviewStageColors[stage] ?? getApplicationStatusColor("INTERVIEW");
 }
 
-function applyAlluvialOutcomeColors(container: HTMLElement) {
-  const links = container.querySelectorAll<AlluvialLinkElement>("path.link");
+function getAlluvialResultStageColor(result: string) {
+  const resultStageColors: Record<string, string> = {
+    "In progress": getApplicationStatusColor("APPLIED"),
+    Offer: getApplicationStatusColor("OFFER"),
+    Rejected: getApplicationStatusColor("REJECTED")
+  };
 
-  for (const link of links) {
-    link.style.stroke = getAlluvialOutcomeColor(link.__data__?.group);
+  return resultStageColors[result] ?? getApplicationStatusColor("APPLIED");
+}
+
+function getAlluvialNodeColorScale(
+  companies: string[],
+  reviewStages: string[],
+  resultStages: string[],
+  themeMode: ThemeMode
+) {
+  const companyColors = Object.fromEntries(
+    companies.map((company, index) => [company, getCompanyGradientColor(index, companies.length, themeMode)])
+  );
+  const reviewStageColors = Object.fromEntries(reviewStages.map((stage) => [stage, getAlluvialReviewStageColor(stage)]));
+  const resultStageColors = Object.fromEntries(resultStages.map((result) => [result, getAlluvialResultStageColor(result)]));
+
+  return {
+    ...companyColors,
+    ...reviewStageColors,
+    ...resultStageColors
+  };
+}
+
+function getCompanyGradientColor(index: number, total: number, themeMode: ThemeMode) {
+  const stops = themeMode === "dark" ? carbonCompanyGradientDark : carbonCompanyGradientLight;
+  if (total <= 1) {
+    return stops[Math.floor(stops.length / 2)];
   }
+
+  const scaledIndex = (index / (total - 1)) * (stops.length - 1);
+  const lowerStopIndex = Math.floor(scaledIndex);
+  const upperStopIndex = Math.ceil(scaledIndex);
+
+  if (lowerStopIndex === upperStopIndex) {
+    return stops[lowerStopIndex];
+  }
+
+  return interpolateHexColor(
+    stops[lowerStopIndex],
+    stops[upperStopIndex],
+    scaledIndex - lowerStopIndex
+  );
+}
+
+function interpolateHexColor(startHex: string, endHex: string, ratio: number) {
+  const start = parseHexColor(startHex);
+  const end = parseHexColor(endHex);
+  return `#${[0, 1, 2]
+    .map((channel) =>
+      Math.round(start[channel] + (end[channel] - start[channel]) * ratio)
+        .toString(16)
+        .padStart(2, "0")
+    )
+    .join("")}`;
+}
+
+function parseHexColor(hexColor: string) {
+  const normalizedHexColor = hexColor.replace("#", "");
+  return [0, 2, 4].map((offset) => Number.parseInt(normalizedHexColor.slice(offset, offset + 2), 16)) as [
+    number,
+    number,
+    number
+  ];
 }
 
 const TrackingResultsTile = memo(function TrackingResultsTile({
@@ -358,7 +457,8 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
 }) {
   const [canRenderAlluvial, setCanRenderAlluvial] = useState(false);
   const [showAlluvialLabels, setShowAlluvialLabels] = useState(true);
-  const trackingResultsChartRef = useRef<HTMLDivElement | null>(null);
+  const [canExportAlluvialPng, setCanExportAlluvialPng] = useState(false);
+  const alluvialExportPngRef = useRef<(() => void) | null>(null);
   const alluvialChartData = useMemo<ChartTabularData>(() => {
     const linkCounts = new Map<string, { group: string; source: string; target: string; value: number }>();
 
@@ -385,12 +485,30 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
     () => Array.from(new Set(applications.map(getApplicationResultStage))).sort(),
     [applications]
   );
-  const alluvialChartHeight = `${Math.max(16, Math.min(26, 8 + alluvialCompanies.length))}rem`;
-  const trackingResultsChartStyle = { "--tracking-results-chart-height": alluvialChartHeight } as CSSProperties;
+  const alluvialChartHeight = "100%";
+  const trackingResultsChartMinHeight = "14rem";
+  const trackingResultsChartStyle = { "--tracking-results-chart-min-height": trackingResultsChartMinHeight } as CSSProperties;
   const alluvialChartKey = useMemo(
     () => `${themeMode}-${alluvialChartData.map((item) => `${item.group}:${item.source}:${item.target}:${item.value}`).join("|")}`,
     [alluvialChartData, themeMode]
   );
+  const alluvialNodeColorScale = useMemo(
+    () =>
+      getAlluvialNodeColorScale(
+        alluvialCompanies,
+        alluvialReviewStages,
+        alluvialResultStages,
+        themeMode
+      ),
+    [alluvialCompanies, alluvialResultStages, alluvialReviewStages, themeMode]
+  );
+  const handleAlluvialExporterChange = useCallback((exporter: (() => void) | null) => {
+    alluvialExportPngRef.current = exporter;
+    setCanExportAlluvialPng(Boolean(exporter));
+  }, []);
+  const handleDownloadAlluvialPng = useCallback(() => {
+    alluvialExportPngRef.current?.();
+  }, []);
   const alluvialChartOptions = useMemo<AlluvialChartOptions>(
     () => ({
       accessibility: {
@@ -412,17 +530,21 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
           }))
         ],
         nodeAlignment: "left",
-        nodePadding: 12,
+        nodePadding: trackingResultsAlluvialNodePadding,
         units: "applications"
       },
       data: {
         groupMapsTo: "group"
       },
       color: {
-        scale: alluvialOutcomeColors
+        gradient: {
+          enabled: true
+        },
+        scale: alluvialNodeColorScale
       },
-      getStrokeColor: (group, _label, _data, defaultStrokeColor) =>
-        alluvialOutcomeColors[group as keyof typeof alluvialOutcomeColors] ?? defaultStrokeColor ?? getApplicationStatusColor("APPLIED"),
+      fileDownload: {
+        fileName: "tracking-results-alluvial"
+      },
       height: alluvialChartHeight,
       legend: {
         enabled: false
@@ -435,7 +557,7 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
         valueFormatter: (value) => formatApplicationTooltipValue(value)
       }
     }),
-    [alluvialChartHeight, alluvialCompanies, alluvialResultStages, alluvialReviewStages, themeMode]
+    [alluvialChartHeight, alluvialCompanies, alluvialNodeColorScale, alluvialResultStages, alluvialReviewStages, themeMode]
   );
 
   useEffect(() => {
@@ -455,22 +577,6 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
     return () => window.cancelAnimationFrame(frameId);
   }, [alluvialChartData.length, canRenderAlluvial, isChartActive]);
 
-  useEffect(() => {
-    if (!canRenderAlluvial || !trackingResultsChartRef.current) {
-      return;
-    }
-
-    const chartContainer = trackingResultsChartRef.current;
-    const frameId = window.requestAnimationFrame(() => applyAlluvialOutcomeColors(chartContainer));
-    const observer = new MutationObserver(() => applyAlluvialOutcomeColors(chartContainer));
-    observer.observe(chartContainer, { childList: true, subtree: true });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      observer.disconnect();
-    };
-  }, [alluvialChartData, canRenderAlluvial, themeMode]);
-
   return (
     <Tile className="tracking-results-tile">
       <div className="tracking-results-panel">
@@ -480,6 +586,15 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
             <p>Company to status to outcome</p>
           </div>
           <div className="tracking-results-controls">
+            <Button
+              disabled={!canExportAlluvialPng}
+              hasIconOnly
+              iconDescription="Download alluvial as PNG"
+              kind="ghost"
+              onClick={handleDownloadAlluvialPng}
+              renderIcon={Download}
+              size="sm"
+            />
             <Checkbox
               checked={showAlluvialLabels}
               id="show-alluvial-labels"
@@ -491,10 +606,14 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
         {canRenderAlluvial ? (
           <div
             className={`tracking-results-chart${showAlluvialLabels ? " tracking-results-chart--labels-visible" : ""}`}
-            ref={trackingResultsChartRef}
             style={trackingResultsChartStyle}
           >
-            <AlluvialChart data={alluvialChartData} key={alluvialChartKey} options={alluvialChartOptions} />
+            <TrackingResultsAlluvialChart
+              data={alluvialChartData}
+              key={alluvialChartKey}
+              onExporterChange={handleAlluvialExporterChange}
+              options={alluvialChartOptions}
+            />
           </div>
         ) : alluvialChartData.length > 0 ? (
           <div
@@ -721,8 +840,8 @@ const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapT
                         return <span className="activity-cell activity-cell--empty" key={dayIndex} aria-hidden="true" />;
                       }
 
-                      const updateUnit = day.count === 1 ? "tracker update" : "tracker updates";
-                      const activityLabel = `${formatActivityDate(day.date)}: ${day.count} ${updateUnit}`;
+                      const applicationUnit = day.count === 1 ? "application" : "applications";
+                      const activityLabel = `${formatActivityDate(day.date)}: ${day.count} ${applicationUnit}`;
 
                       return (
                         <span
@@ -740,7 +859,7 @@ const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapT
           </div>
 
           <div className="activity-calendar-footer">
-            <span>Application tracker updates</span>
+            <span>Unique applications</span>
             <div className="activity-legend" aria-hidden="true">
               <span>Less</span>
               {[0, 1, 2, 3, 4].map((level) => (

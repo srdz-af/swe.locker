@@ -30,7 +30,7 @@ export async function listPostings() {
     where: {
       isActive: true
     },
-    orderBy: [{ firstSeenAt: "desc" }, { company: "asc" }, { role: "asc" }]
+    orderBy: [{ isClosed: "asc" }, { firstSeenAt: "desc" }, { company: "asc" }, { role: "asc" }]
   });
 
   return postings.map((posting) =>

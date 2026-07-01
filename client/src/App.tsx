@@ -55,6 +55,7 @@ import {
   applicationStatuses,
   darkPreferenceQuery,
   initialManualApplicationForm,
+  modalPrimaryFocusSelector,
   themeStorageKey
 } from "./constants";
 import { ApplicationTrackerPanel } from "./features/applications/ApplicationTrackerPanel";
@@ -754,6 +755,7 @@ function App() {
                   <TabPanel className="app-tab-panel">
                     <ResumeGraderPanel
                       applications={applications}
+                      isActive={selectedTabIndex === 2}
                       isUploadPending={isResumeUploadPending}
                       onDeleteRun={handleResumeRunDelete}
                       onUpload={handleResumeUpload}
@@ -803,11 +805,12 @@ function App() {
         primaryButtonDisabled={isTrackModalSubmitting}
         primaryButtonText={isTrackModalSubmitting ? "Tracking" : "Track"}
         secondaryButtonText="Cancel"
+        selectorPrimaryFocus={modalPrimaryFocusSelector}
         size="sm"
         onRequestClose={handleCloseTrackModal}
         onRequestSubmit={() => void handleConfirmTrack()}
       >
-        <div className="track-modal-body">
+        <div className="track-modal-body" data-app-modal-primary-focus tabIndex={-1}>
           <p>{pendingTrackPosting?.role}</p>
           <TextInput
             id="external-tracking-url"
@@ -828,11 +831,12 @@ function App() {
         primaryButtonDisabled={isManualApplicationSubmitDisabled}
         primaryButtonText={isManualApplicationSubmitting ? "Adding" : "Add"}
         secondaryButtonText="Cancel"
+        selectorPrimaryFocus={modalPrimaryFocusSelector}
         size="sm"
         onRequestClose={handleCloseManualApplicationModal}
         onRequestSubmit={() => void handleCreateManualApplication()}
       >
-        <div className="track-modal-body">
+        <div className="track-modal-body" data-app-modal-primary-focus tabIndex={-1}>
           <TextInput
             id="manual-application-company"
             labelText="Company"

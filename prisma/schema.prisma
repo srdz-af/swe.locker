@@ -38,14 +38,24 @@ model SourceConfig {
   sourceKey          String       @unique
   displayName        String
   repositoryUrl      String
+  repositoryCloneUrl String       @default("")
+  repositoryBranch   String       @default("dev")
+  repositoryFilePath String       @default("")
   rawReadmeUrl       String
   season             String
   fetchIntervalHours Int
   enabled            Boolean      @default(true)
+  lastRemoteCommitSha String?
+  lastContentSha      String?
+  lastCheckedAt       DateTime?
+  lastFetchedAt       DateTime?
+  lastParsedAt        DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   postings           JobPosting[]
   fetchRuns          FetchRun[]
+
+  @@index([repositoryCloneUrl, repositoryBranch])
 }
 
 model JobPosting {
@@ -63,7 +73,7 @@ model JobPosting {
   primaryApplicationUrl   String?
   simplifyUrl             String?
   ageText                 String?
-  normalizedKey           String        @unique
+  normalizedKey           String
   rawRowContent           String?
   firstSeenAt             DateTime
   lastSeenAt              DateTime
@@ -79,6 +89,7 @@ model JobPosting {
   applications            Application[]
 
   @@index([sourceConfigId])
+  @@unique([sourceConfigId, normalizedKey])
   @@index([season])
   @@index([category])
   @@index([normalizedCompanyName])
