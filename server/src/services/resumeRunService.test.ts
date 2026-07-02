@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../errors.js";
-import { createResumeRun, deleteResumeRun, listResumeRuns } from "./resumeRunService.js";
+import { createResumeRun, deleteResumeRun, listResumeRuns, restoreResumeRunSnapshot } from "./resumeRunService.js";
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   resumeRun: {
     create: vi.fn(),
     delete: vi.fn(),
     findFirst: vi.fn(),
-    findMany: vi.fn()
+    findMany: vi.fn(),
+    update: vi.fn()
   }
 }));
 
@@ -81,6 +83,7 @@ const baseResumeRun = {
 describe("resumeRunService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
     resumeGraderMock.gradeResume.mockReturnValue({
       rank: "B",
       verdict: "Temporary random grading result.",
@@ -408,6 +411,66 @@ describe("resumeRunService", () => {
     });
     expect(prismaMock.resumeRun.delete).toHaveBeenCalledWith({
       where: { id: "resume_run_1" }
+    });
+  });
+
+  it("restores a resume run snapshot without grading it again", async () => {
+    prismaMock.resumeRun.findFirst.mockResolvedValue(null);
+    prismaMock.resumeRun.create.mockResolvedValue(baseResumeRun);
+
+    await expect(
+      restoreResumeRunSnapshot({
+        id: "resume_run_1",
+        sourceName: "alex-rivera-resume.pdf",
+        parsedText: "Alex Rivera\nSoftware Engineer",
+        grade: 86,
+        tier: "B",
+        verdict: "Solid revision.",
+        metrics: [
+          { label: "Structure", value: 90 },
+          { label: "Impact", value: 82 }
+        ],
+        comments: [
+          {
+            id: "rank",
+            label: "Signal",
+            scoreLabel: "Signal B",
+            comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+          }
+        ],
+        resumeItems: baseResumeItems,
+        createdAt: "2026-06-01T00:00:00.000Z"
+      })
+    ).resolves.toMatchObject({
+      id: "resume_run_1",
+      grade: 86,
+      tier: "B"
+    });
+    expect(resumeGraderMock.gradeResume).not.toHaveBeenCalled();
+    expect(prismaMock.resumeRun.create).toHaveBeenCalledWith({
+      data: {
+        id: "resume_run_1",
+        ownerKey: "local",
+        sourceName: "alex-rivera-resume.pdf",
+        parsedText: "Alex Rivera\nSoftware Engineer",
+        grade: 86,
+        tier: "B",
+        verdict: "Solid revision.",
+        metrics: JSON.stringify([
+          { label: "Structure", value: 90 },
+          { label: "Impact", value: 82 }
+        ]),
+        comments: JSON.stringify([
+          {
+            id: "rank",
+            label: "Signal",
+            scoreLabel: "Signal B",
+            comments: [{ id: "rank-comment-1", start: 0, end: 11, text: "Strong profile." }]
+          }
+        ]),
+        bulletGrades: JSON.stringify(baseResumeItems),
+        createdAt: new Date("2026-06-01T00:00:00.000Z")
+      }
     });
   });
 

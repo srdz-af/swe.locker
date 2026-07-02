@@ -1,0 +1,1 @@
+-- SQLite stores Prisma enums as TEXT, so adding GHOSTED only updates the Prisma schema.

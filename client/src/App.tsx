@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActionableNotification,
   Breadcrumb,
   BreadcrumbItem,
   Column,
@@ -31,6 +32,7 @@ import type {
   ApplicationDto,
   ApplicationStatus,
   JobPostingDto,
+  RestoreApplicationSnapshotRequest,
   SourceConfigDto,
   UpdateApplicationDetailsRequest
 } from "../../shared/src/index";
@@ -47,14 +49,19 @@ import {
   getSourceConfigs,
   listResumeRuns,
   listApplications,
+  purgeArchivedApplications,
+  restoreApplicationSnapshot,
+  restoreResumeRunSnapshot,
+  unarchiveApplication,
   updateApplicationDetails,
   updateApplicationStatus,
   unfollowCompany
 } from "./api";
 import {
-  applicationStatuses,
+  activeApplicationStatuses,
   darkPreferenceQuery,
   initialManualApplicationForm,
+  isArchivedApplicationStatus,
   modalPrimaryFocusSelector,
   themeStorageKey
 } from "./constants";
@@ -82,6 +89,14 @@ import "@carbon/charts-react/styles.css";
 import "./styles.scss";
 
 const allPostingSourcesValue = "all";
+const noticeAutoDismissMs = 10_000;
+
+type DashboardNotice = {
+  id: number;
+  message: string;
+  undo?: () => Promise<void> | void;
+  isUndoing?: boolean;
+};
 
 function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") {
@@ -126,8 +141,9 @@ function App() {
   const [isApplicationDetailsSaving, setIsApplicationDetailsSaving] = useState(false);
   const [isResumeUploadPending, setIsResumeUploadPending] = useState(false);
   const [resumeUploadError, setResumeUploadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<DashboardNotice | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const noticeIdRef = useRef(0);
   const carbonTheme = themeMode === "dark" ? "g100" : "white";
   const deferredSearch = useDeferredValue(search);
   const deferredLocation = useDeferredValue(location);
@@ -137,7 +153,7 @@ function App() {
     const [sourceConfigList, postingList, applicationList, activityList, persistedResumeRuns] = await Promise.all([
       getSourceConfigs(),
       getPostings(),
-      listApplications(),
+      listApplications({ includeArchived: true }),
       getApplicationActivity(),
       listResumeRuns()
     ]);
@@ -152,6 +168,173 @@ function App() {
   const refreshApplicationActivity = useCallback(async () => {
     setActivityDays(await getApplicationActivity());
   }, []);
+
+  const dismissNotice = useCallback((noticeId?: number) => {
+    setNotice((currentNotice) => {
+      if (noticeId !== undefined && currentNotice?.id !== noticeId) {
+        return currentNotice;
+      }
+
+      return null;
+    });
+  }, []);
+
+  const showNotice = useCallback((message: string, undo?: () => Promise<void> | void) => {
+    noticeIdRef.current += 1;
+    setNotice({
+      id: noticeIdRef.current,
+      message,
+      undo
+    });
+  }, []);
+
+  const upsertApplication = useCallback((application: ApplicationDto) => {
+    setApplications((currentApplications) => {
+      const remainingApplications = currentApplications.filter((currentApplication) => currentApplication.id !== application.id);
+      return [application, ...remainingApplications];
+    });
+
+    if (application.jobPostingId) {
+      setPostings((currentPostings) =>
+        currentPostings.map((currentPosting) =>
+          currentPosting.id === application.jobPostingId
+            ? { ...currentPosting, isTracked: true, trackedApplicationId: application.id }
+            : currentPosting
+        )
+      );
+    }
+
+    setSelectedApplicationId(application.id);
+  }, []);
+
+  const removeApplicationFromState = useCallback((application: ApplicationDto) => {
+    setApplications((currentApplications) =>
+      currentApplications.filter((currentApplication) => currentApplication.id !== application.id)
+    );
+
+    if (application.jobPostingId) {
+      setPostings((currentPostings) =>
+        currentPostings.map((currentPosting) =>
+          currentPosting.id === application.jobPostingId && currentPosting.trackedApplicationId === application.id
+            ? { ...currentPosting, isTracked: false, trackedApplicationId: null }
+            : currentPosting
+        )
+      );
+    }
+  }, []);
+
+  const removeApplicationsFromState = useCallback((applicationsToRemove: ApplicationDto[]) => {
+    const applicationIds = new Set(applicationsToRemove.map((application) => application.id));
+    const trackedPostingIdsByApplicationId = new Map(
+      applicationsToRemove
+        .filter((application) => application.jobPostingId)
+        .map((application) => [application.id, application.jobPostingId])
+    );
+
+    setApplications((currentApplications) =>
+      currentApplications.filter((currentApplication) => !applicationIds.has(currentApplication.id))
+    );
+
+    if (trackedPostingIdsByApplicationId.size > 0) {
+      setPostings((currentPostings) =>
+        currentPostings.map((currentPosting) => {
+          const jobPostingId = currentPosting.trackedApplicationId
+            ? trackedPostingIdsByApplicationId.get(currentPosting.trackedApplicationId)
+            : null;
+
+          return jobPostingId && currentPosting.id === jobPostingId
+            ? { ...currentPosting, isTracked: false, trackedApplicationId: null }
+            : currentPosting;
+        })
+      );
+    }
+  }, []);
+
+  const archiveApplicationInState = useCallback((application: ApplicationDto) => {
+    setApplications((currentApplications) => {
+      const hasApplication = currentApplications.some((currentApplication) => currentApplication.id === application.id);
+      if (!hasApplication) {
+        return [application, ...currentApplications];
+      }
+
+      return currentApplications.map((currentApplication) =>
+        currentApplication.id === application.id ? application : currentApplication
+      );
+    });
+
+    if (application.jobPostingId) {
+      setPostings((currentPostings) =>
+        currentPostings.map((currentPosting) =>
+          currentPosting.id === application.jobPostingId && currentPosting.trackedApplicationId === application.id
+            ? { ...currentPosting, isTracked: false, trackedApplicationId: null }
+            : currentPosting
+        )
+      );
+    }
+  }, []);
+
+  const restoreApplicationFromSnapshot = useCallback(
+    async (application: ApplicationDto) => {
+      const restoredApplication = await restoreApplicationSnapshot(toRestoreApplicationSnapshot(application));
+      if (restoredApplication.archivedAt) {
+        archiveApplicationInState(restoredApplication);
+      } else {
+        upsertApplication(restoredApplication);
+      }
+      await refreshApplicationActivity();
+    },
+    [archiveApplicationInState, refreshApplicationActivity, upsertApplication]
+  );
+
+  const handleNoticeUndo = useCallback(
+    async (noticeToUndo: DashboardNotice) => {
+      if (!noticeToUndo.undo || noticeToUndo.isUndoing) {
+        return;
+      }
+
+      setNotice((currentNotice) =>
+        currentNotice?.id === noticeToUndo.id ? { ...currentNotice, isUndoing: true } : currentNotice
+      );
+
+      try {
+        await noticeToUndo.undo();
+        dismissNotice(noticeToUndo.id);
+      } catch (undoError) {
+        setError(undoError instanceof Error ? undoError.message : "Could not undo that operation.");
+        setNotice((currentNotice) =>
+          currentNotice?.id === noticeToUndo.id ? { ...currentNotice, isUndoing: false } : currentNotice
+        );
+      }
+    },
+    [dismissNotice]
+  );
+
+  useEffect(() => {
+    if (!notice || notice.isUndoing) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => dismissNotice(notice.id), noticeAutoDismissMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [dismissNotice, notice]);
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setError(null), noticeAutoDismissMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
+
+  useEffect(() => {
+    if (!resumeUploadError) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setResumeUploadError(null), noticeAutoDismissMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [resumeUploadError]);
 
   useEffect(() => {
     if (didLoadInitialSnapshot.current) {
@@ -220,6 +403,10 @@ function App() {
     () => postings.find((posting) => posting.id === selectedPostingId) ?? null,
     [postings, selectedPostingId]
   );
+  const activeApplications = useMemo(
+    () => applications.filter((application) => !application.archivedAt),
+    [applications]
+  );
 
   useEffect(() => {
     setSelectedApplicationId((currentApplicationId) => {
@@ -227,9 +414,9 @@ function App() {
         return currentApplicationId;
       }
 
-      return applications[0]?.id ?? null;
+      return activeApplications[0]?.id ?? applications[0]?.id ?? null;
     });
-  }, [applications]);
+  }, [activeApplications, applications]);
 
   const pageHeader = useMemo(
     () => {
@@ -245,7 +432,7 @@ function App() {
         return {
           title: "Applications",
           metricLabel: "Tracked",
-          metricValue: String(applications.length)
+          metricValue: String(activeApplications.length)
         };
       }
 
@@ -265,7 +452,7 @@ function App() {
         metricValue: String(postings.length)
       };
     },
-    [applications.length, postings.length, resumeRuns, selectedTabIndex, sourceFilteredPostings.length, visiblePostings.length]
+    [activeApplications.length, postings.length, resumeRuns, selectedTabIndex, sourceFilteredPostings.length, visiblePostings.length]
   );
 
   useEffect(() => {
@@ -276,7 +463,7 @@ function App() {
 
   const handleResumeUpload = useCallback(async (file: File) => {
     setError(null);
-    setNotice(null);
+    dismissNotice();
     setResumeUploadError(null);
     setIsResumeUploadPending(true);
 
@@ -289,16 +476,19 @@ function App() {
 
       const resumeRun = await createResumeRun(toCreateResumeRunRequest(createExtractedResumeRun(file, parsedText)));
       setResumeRuns((currentRuns) => [resumeRun, ...currentRuns].sort(compareResumeRunsByCreatedAtDesc));
-      setNotice(`Extracted text from ${file.name}.`);
+      showNotice(`Extracted text from ${file.name}.`);
     } catch (uploadError) {
       setResumeUploadError(uploadError instanceof Error ? uploadError.message : "Could not extract resume text.");
     } finally {
       setIsResumeUploadPending(false);
     }
-  }, []);
+  }, [dismissNotice, showNotice]);
 
   const handleResumeRunDelete = useCallback(async (run: ResumeGraderRun) => {
     setError(null);
+    const associatedApplications = applications.filter(
+      (application) => !application.archivedAt && application.submittedResumeRunId === run.id
+    );
     try {
       await deleteResumeRun(run.id);
       setResumeRuns((currentRuns) => currentRuns.filter((currentRun) => currentRun.id !== run.id));
@@ -309,11 +499,28 @@ function App() {
             : currentApplication
         )
       );
-      setNotice(`${run.sourceName} deleted.`);
+      showNotice(`${run.sourceName} deleted.`, async () => {
+        const restoredRun = await restoreResumeRunSnapshot(run);
+        setResumeRuns((currentRuns) => [restoredRun, ...currentRuns].sort(compareResumeRunsByCreatedAtDesc));
+        const restoredApplications = await Promise.all(
+          associatedApplications.map((application) =>
+            updateApplicationDetails(application.id, {
+              submittedResumeRunId: restoredRun.id
+            })
+          )
+        );
+        setApplications((currentApplications) =>
+          currentApplications.map(
+            (currentApplication) =>
+              restoredApplications.find((restoredApplication) => restoredApplication.id === currentApplication.id) ??
+              currentApplication
+          )
+        );
+      });
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Could not delete resume run.");
     }
-  }, []);
+  }, [applications, showNotice]);
 
   const handleFollow = useCallback(async (posting: JobPostingDto) => {
     setError(null);
@@ -327,7 +534,16 @@ function App() {
               : currentPosting
           )
         );
-        setNotice(`Unfollowed ${posting.company}.`);
+        showNotice(`Unfollowed ${posting.company}.`, async () => {
+          const followedCompany = await followCompany(posting.company);
+          setPostings((currentPostings) =>
+            currentPostings.map((currentPosting) =>
+              currentPosting.normalizedCompanyName === followedCompany.normalizedCompanyName
+                ? { ...currentPosting, isFollowed: true }
+                : currentPosting
+            )
+          );
+        });
       } else {
         const followedCompany = await followCompany(posting.company);
         setPostings((currentPostings) =>
@@ -337,28 +553,46 @@ function App() {
               : currentPosting
           )
         );
-        setNotice(`Following ${posting.company}.`);
+        showNotice(`Following ${posting.company}.`, async () => {
+          await unfollowCompany(followedCompany.normalizedCompanyName);
+          setPostings((currentPostings) =>
+            currentPostings.map((currentPosting) =>
+              currentPosting.normalizedCompanyName === followedCompany.normalizedCompanyName
+                ? { ...currentPosting, isFollowed: false }
+                : currentPosting
+            )
+          );
+        });
       }
     } catch (followError) {
       setError(followError instanceof Error ? followError.message : "Company follow update failed.");
     }
-  }, []);
+  }, [showNotice]);
 
   const handleTrack = useCallback(async (posting: JobPostingDto) => {
     setError(null);
     try {
       if (posting.trackedApplicationId) {
+        const applicationSnapshot =
+          applications.find((application) => application.id === posting.trackedApplicationId) ?? null;
         await deleteApplication(posting.trackedApplicationId);
-        setPostings((currentPostings) =>
-          currentPostings.map((currentPosting) =>
-            currentPosting.id === posting.id ? { ...currentPosting, isTracked: false, trackedApplicationId: null } : currentPosting
-          )
-        );
-        setApplications((currentApplications) =>
-          currentApplications.filter((application) => application.id !== posting.trackedApplicationId)
-        );
+        if (applicationSnapshot) {
+          removeApplicationFromState(applicationSnapshot);
+        } else {
+          setPostings((currentPostings) =>
+            currentPostings.map((currentPosting) =>
+              currentPosting.id === posting.id ? { ...currentPosting, isTracked: false, trackedApplicationId: null } : currentPosting
+            )
+          );
+          setApplications((currentApplications) =>
+            currentApplications.filter((application) => application.id !== posting.trackedApplicationId)
+          );
+        }
         await refreshApplicationActivity();
-        setNotice(`${posting.company} application removed from tracking.`);
+        showNotice(
+          `${posting.company} application removed from tracking.`,
+          applicationSnapshot ? () => restoreApplicationFromSnapshot(applicationSnapshot) : undefined
+        );
       } else {
         setPendingTrackPosting(posting);
         setExternalTrackingUrl("");
@@ -366,7 +600,7 @@ function App() {
     } catch (trackError) {
       setError(trackError instanceof Error ? trackError.message : "Could not update application tracking.");
     }
-  }, [refreshApplicationActivity]);
+  }, [applications, refreshApplicationActivity, removeApplicationFromState, restoreApplicationFromSnapshot, showNotice]);
 
   const handleCloseTrackModal = useCallback(() => {
     if (isTrackModalSubmitting) {
@@ -386,23 +620,12 @@ function App() {
     setIsTrackModalSubmitting(true);
     try {
       const application = await createApplication(pendingTrackPosting.id, externalTrackingUrl.trim() || null);
-      setApplications((currentApplications) => {
-        const existingApplication = currentApplications.some((currentApplication) => currentApplication.id === application.id);
-        return existingApplication
-          ? currentApplications.map((currentApplication) =>
-              currentApplication.id === application.id ? application : currentApplication
-            )
-          : [application, ...currentApplications];
+      upsertApplication(application);
+      showNotice(`${pendingTrackPosting.company} application added to tracking.`, async () => {
+        await deleteApplication(application.id);
+        removeApplicationFromState(application);
+        await refreshApplicationActivity();
       });
-      setPostings((currentPostings) =>
-        currentPostings.map((currentPosting) =>
-          currentPosting.id === pendingTrackPosting.id
-            ? { ...currentPosting, isTracked: true, trackedApplicationId: application.id }
-            : currentPosting
-        )
-      );
-      setNotice(`${pendingTrackPosting.company} application added to tracking.`);
-      setSelectedApplicationId(application.id);
       setPendingTrackPosting(null);
       setExternalTrackingUrl("");
       await refreshApplicationActivity();
@@ -411,7 +634,7 @@ function App() {
     } finally {
       setIsTrackModalSubmitting(false);
     }
-  }, [externalTrackingUrl, pendingTrackPosting, refreshApplicationActivity]);
+  }, [externalTrackingUrl, pendingTrackPosting, refreshApplicationActivity, removeApplicationFromState, showNotice, upsertApplication]);
 
   const handleOpenManualApplicationModal = useCallback(() => {
     setError(null);
@@ -446,9 +669,12 @@ function App() {
         externalApplicationTrackingUrl: manualApplicationForm.externalApplicationTrackingUrl || null,
         status: manualApplicationForm.status
       });
-      setApplications((currentApplications) => [application, ...currentApplications]);
-      setSelectedApplicationId(application.id);
-      setNotice(`${application.company} application added.`);
+      upsertApplication(application);
+      showNotice(`${application.company} application added.`, async () => {
+        await deleteApplication(application.id);
+        removeApplicationFromState(application);
+        await refreshApplicationActivity();
+      });
       setIsManualApplicationModalOpen(false);
       setManualApplicationForm(initialManualApplicationForm);
       await refreshApplicationActivity();
@@ -457,7 +683,7 @@ function App() {
     } finally {
       setIsManualApplicationSubmitting(false);
     }
-  }, [manualApplicationForm, refreshApplicationActivity]);
+  }, [manualApplicationForm, refreshApplicationActivity, removeApplicationFromState, showNotice, upsertApplication]);
 
   const handleApplicationStatusChange = useCallback(
     async (application: ApplicationDto, status: ApplicationStatus) => {
@@ -468,18 +694,35 @@ function App() {
       setError(null);
       try {
         const updatedApplication = await updateApplicationStatus(application.id, status);
+        if (isArchivedApplicationStatus(status)) {
+          archiveApplicationInState(updatedApplication);
+          showNotice(`${application.company} ${getApplicationStatusLabel(status).toLowerCase()} and archived.`, () =>
+            restoreApplicationFromSnapshot(application)
+          );
+          await refreshApplicationActivity();
+          return;
+        }
+
         setApplications((currentApplications) =>
           currentApplications.map((currentApplication) =>
             currentApplication.id === updatedApplication.id ? updatedApplication : currentApplication
           )
         );
-        setNotice(`${application.company} moved to ${getApplicationStatusLabel(status)}.`);
+        showNotice(`${application.company} moved to ${getApplicationStatusLabel(status)}.`, async () => {
+          const restoredApplication = await updateApplicationStatus(application.id, application.status);
+          setApplications((currentApplications) =>
+            currentApplications.map((currentApplication) =>
+              currentApplication.id === restoredApplication.id ? restoredApplication : currentApplication
+            )
+          );
+          await refreshApplicationActivity();
+        });
         await refreshApplicationActivity();
       } catch (statusError) {
         setError(statusError instanceof Error ? statusError.message : "Could not update application status.");
       }
     },
-    [refreshApplicationActivity]
+    [archiveApplicationInState, refreshApplicationActivity, restoreApplicationFromSnapshot, showNotice]
   );
 
   const handleApplicationDetailsSave = useCallback(
@@ -494,7 +737,21 @@ function App() {
           )
         );
         setSelectedApplicationId(updatedApplication.id);
-        setNotice(`${application.company} details saved.`);
+        showNotice(`${application.company} details saved.`, async () => {
+          const restoredApplication = await updateApplicationDetails(application.id, {
+            notes: application.notes,
+            interviewDates: application.interviewDates,
+            interviewRound: application.interviewRound,
+            links: application.links,
+            submittedResumeRunId: application.submittedResumeRunId
+          });
+          setApplications((currentApplications) =>
+            currentApplications.map((currentApplication) =>
+              currentApplication.id === restoredApplication.id ? restoredApplication : currentApplication
+            )
+          );
+          setSelectedApplicationId(restoredApplication.id);
+        });
       } catch (detailsError) {
         setError(detailsError instanceof Error ? detailsError.message : "Could not save application details.");
         throw detailsError;
@@ -502,36 +759,34 @@ function App() {
         setIsApplicationDetailsSaving(false);
       }
     },
-    []
+    [showNotice]
   );
-
-  const removeApplicationFromTracker = useCallback((application: ApplicationDto) => {
-    setApplications((currentApplications) =>
-      currentApplications.filter((currentApplication) => currentApplication.id !== application.id)
-    );
-    if (application.jobPostingId) {
-      setPostings((currentPostings) =>
-        currentPostings.map((currentPosting) =>
-          currentPosting.id === application.jobPostingId
-            ? { ...currentPosting, isTracked: false, trackedApplicationId: null }
-            : currentPosting
-        )
-      );
-    }
-  }, []);
 
   const handleApplicationArchive = useCallback(
     async (application: ApplicationDto) => {
       setError(null);
       try {
-        await archiveApplication(application.id);
-        removeApplicationFromTracker(application);
-        setNotice(`${application.company} application archived.`);
+        if (application.archivedAt) {
+          const unarchivedApplication = await unarchiveApplication(application.id);
+          upsertApplication(unarchivedApplication);
+          showNotice(`${application.company} application unarchived.`, () => restoreApplicationFromSnapshot(application));
+          return;
+        }
+
+        const archivedApplication = await archiveApplication(application.id);
+        archiveApplicationInState(archivedApplication);
+        showNotice(`${application.company} application archived.`, () => restoreApplicationFromSnapshot(application));
       } catch (archiveError) {
-        setError(archiveError instanceof Error ? archiveError.message : "Could not archive application.");
+        setError(
+          archiveError instanceof Error
+            ? archiveError.message
+            : application.archivedAt
+              ? "Could not unarchive application."
+              : "Could not archive application."
+        );
       }
     },
-    [removeApplicationFromTracker]
+    [archiveApplicationInState, restoreApplicationFromSnapshot, showNotice, upsertApplication]
   );
 
   const handleApplicationDelete = useCallback(
@@ -539,14 +794,38 @@ function App() {
       setError(null);
       try {
         await deleteApplication(application.id);
-        removeApplicationFromTracker(application);
+        removeApplicationFromState(application);
         await refreshApplicationActivity();
-        setNotice(`${application.company} application deleted.`);
+        showNotice(`${application.company} application deleted.`, () => restoreApplicationFromSnapshot(application));
       } catch (deleteError) {
         setError(deleteError instanceof Error ? deleteError.message : "Could not delete application.");
       }
     },
-    [refreshApplicationActivity, removeApplicationFromTracker]
+    [refreshApplicationActivity, removeApplicationFromState, restoreApplicationFromSnapshot, showNotice]
+  );
+
+  const handleArchivedApplicationsPurge = useCallback(
+    async (archivedApplications: ApplicationDto[]) => {
+      if (archivedApplications.length === 0) {
+        return;
+      }
+
+      setError(null);
+      try {
+        const result = await purgeArchivedApplications();
+        removeApplicationsFromState(archivedApplications);
+        await refreshApplicationActivity();
+        const deletedCount = result.deletedCount || archivedApplications.length;
+        showNotice(`${deletedCount} archived ${deletedCount === 1 ? "application" : "applications"} purged.`, async () => {
+          for (const application of archivedApplications) {
+            await restoreApplicationFromSnapshot(application);
+          }
+        });
+      } catch (purgeError) {
+        setError(purgeError instanceof Error ? purgeError.message : "Could not purge archived applications.");
+      }
+    },
+    [refreshApplicationActivity, removeApplicationsFromState, restoreApplicationFromSnapshot, showNotice]
   );
 
   const handleSelectPosting = useCallback((posting: JobPostingDto) => {
@@ -746,6 +1025,7 @@ function App() {
                       onCreate={handleOpenManualApplicationModal}
                       onDelete={handleApplicationDelete}
                       onDetailsSave={handleApplicationDetailsSave}
+                      onPurgeArchived={handleArchivedApplicationsPurge}
                       onSelect={handleSelectApplication}
                       onStatusChange={handleApplicationStatusChange}
                       resumeRuns={resumeRuns}
@@ -768,7 +1048,6 @@ function App() {
                       activityDays={activityDays}
                       applications={applications}
                       isChartActive={hasOpenedStats || selectedTabIndex === 3}
-                      postings={postings}
                       resumeRuns={resumeRuns}
                       themeMode={themeMode}
                     />
@@ -787,13 +1066,21 @@ function App() {
             <InlineNotification kind="error" lowContrast title="Resume upload failed" subtitle={resumeUploadError} hideCloseButton />
           ) : null}
           {notice ? (
-            <InlineNotification
-              kind="success"
-              lowContrast
-              title="Updated"
-              subtitle={notice}
-              onCloseButtonClick={() => setNotice(null)}
-            />
+            notice.undo ? (
+              <ActionableNotification
+                actionButtonLabel={notice.isUndoing ? "Undoing" : "Undo"}
+                hideCloseButton
+                inline
+                kind="success"
+                lowContrast
+                role="status"
+                subtitle={notice.message}
+                title="Updated"
+                onActionButtonClick={() => void handleNoticeUndo(notice)}
+              />
+            ) : (
+              <InlineNotification kind="success" lowContrast title="Updated" subtitle={notice.message} hideCloseButton />
+            )
           ) : null}
         </div>
       ) : null}
@@ -903,14 +1190,36 @@ function App() {
               }))
             }
           >
-            {applicationStatuses.map((option) => (
-              <SelectItem key={option.status} text={option.label} value={option.status} />
-            ))}
+            {activeApplicationStatuses
+              .filter((option) => option.status !== "HIRED")
+              .map((option) => (
+                <SelectItem key={option.status} text={option.label} value={option.status} />
+              ))}
           </Select>
         </div>
       </Modal>
     </Theme>
   );
+}
+
+function toRestoreApplicationSnapshot(application: ApplicationDto): RestoreApplicationSnapshotRequest {
+  return {
+    id: application.id,
+    jobPostingId: application.jobPostingId,
+    company: application.company,
+    role: application.role,
+    jobPostingUrl: application.jobPostingUrl,
+    externalApplicationTrackingUrl: application.externalApplicationTrackingUrl,
+    notes: application.notes,
+    interviewDates: application.interviewDates,
+    interviewRound: application.interviewRound,
+    links: application.links,
+    submittedResumeRunId: application.submittedResumeRunId,
+    status: application.status,
+    archivedAt: application.archivedAt,
+    createdAt: application.createdAt,
+    events: application.events
+  };
 }
 
 export default App;

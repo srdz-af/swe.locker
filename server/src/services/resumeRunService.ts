@@ -94,6 +94,76 @@ export async function deleteResumeRun(resumeRunId: string) {
   });
 }
 
+export async function restoreResumeRunSnapshot(input: {
+  id: string;
+  sourceName: string;
+  parsedText: string;
+  grade: number | null;
+  tier: ResumeTier | null;
+  verdict?: string | null;
+  metrics: ResumeGradeMetric[];
+  comments: ResumeGradeCommentGroup[];
+  resumeItems: ResumeGradeItem[];
+  createdAt: string;
+}) {
+  const id = input.id.trim();
+  const sourceName = input.sourceName.trim();
+  const parsedText = input.parsedText.trim();
+  const createdAt = normalizeCreatedAt(input.createdAt);
+
+  if (!id || !sourceName || !parsedText || !createdAt) {
+    throw new HttpError(400, "Invalid resume run restore payload.");
+  }
+
+  if (input.grade !== null && (!Number.isInteger(input.grade) || input.grade < 0 || input.grade > 100)) {
+    throw new HttpError(400, "Invalid resume run restore payload.");
+  }
+
+  if (input.tier !== null && !resumeTiers.has(input.tier)) {
+    throw new HttpError(400, "Invalid resume run restore payload.");
+  }
+
+  const data = {
+    ownerKey: LOCAL_OWNER_KEY,
+    sourceName,
+    parsedText,
+    grade: input.grade,
+    tier: input.tier,
+    verdict: input.verdict?.trim() || null,
+    metrics: JSON.stringify(input.metrics),
+    comments: JSON.stringify(input.comments),
+    bulletGrades: JSON.stringify(input.resumeItems),
+    createdAt
+  };
+
+  const restoredResumeRun = await prisma.$transaction(async (transaction) => {
+    const existingResumeRun = await transaction.resumeRun.findFirst({
+      where: {
+        id,
+        ownerKey: LOCAL_OWNER_KEY
+      }
+    });
+
+    if (existingResumeRun) {
+      return transaction.resumeRun.update({
+        where: {
+          id
+        },
+        data
+      });
+    }
+
+    return transaction.resumeRun.create({
+      data: {
+        id,
+        ...data
+      }
+    });
+  });
+
+  return toResumeRunDto(restoredResumeRun);
+}
+
 function normalizeGraderRank(value: ResumeRank) {
   if (!resumeTiers.has(value as ResumeTier)) {
     throw new Error("Resume grader returned an invalid rank.");

@@ -19,6 +19,9 @@ enum ApplicationStatus {
   OFFER
   HIRED
   REJECTED
+  DECLINED
+  GHOSTED
+  WITHDRAWN
 }
 
 enum ApplicationEventType {
@@ -138,6 +141,7 @@ model Application {
   externalApplicationTrackingUrl String?
   notes                          String?
   interviewDates                 String             @default("[]")
+  interviewRound                 Int?
   links                          String             @default("[]")
   submittedResumeRunId           String?
   submittedResumeRun             ResumeRun?         @relation(fields: [submittedResumeRunId], references: [id], onDelete: SetNull)

@@ -40,7 +40,10 @@ export const applicationStatusColors: Record<ApplicationStatus, string> = {
   INTERVIEW: "#4589ff",
   OFFER: "#42be65",
   HIRED: "#24a148",
-  REJECTED: "#fa4d56"
+  REJECTED: "#fa4d56",
+  DECLINED: "#f1c21b",
+  GHOSTED: "#6f6f6f",
+  WITHDRAWN: "#a8a8a8"
 };
 
 export const applicationStatuses: Array<{ status: ApplicationStatus; label: string; color: string }> = [
@@ -48,8 +51,17 @@ export const applicationStatuses: Array<{ status: ApplicationStatus; label: stri
   { status: "INTERVIEW", label: "Interview", color: applicationStatusColors.INTERVIEW },
   { status: "OFFER", label: "Offer", color: applicationStatusColors.OFFER },
   { status: "HIRED", label: "Hired", color: applicationStatusColors.HIRED },
-  { status: "REJECTED", label: "Rejected", color: applicationStatusColors.REJECTED }
+  { status: "REJECTED", label: "Rejected", color: applicationStatusColors.REJECTED },
+  { status: "DECLINED", label: "Declined", color: applicationStatusColors.DECLINED },
+  { status: "GHOSTED", label: "Ghosted", color: applicationStatusColors.GHOSTED },
+  { status: "WITHDRAWN", label: "Withdrawn", color: applicationStatusColors.WITHDRAWN }
 ];
+
+export function isArchivedApplicationStatus(status: ApplicationStatus) {
+  return status === "DECLINED" || status === "GHOSTED" || status === "WITHDRAWN";
+}
+
+export const activeApplicationStatuses = applicationStatuses.filter((option) => !isArchivedApplicationStatus(option.status));
 
 export function getApplicationStatusColor(status: ApplicationStatus) {
   return applicationStatusColors[status];

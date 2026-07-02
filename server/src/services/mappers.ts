@@ -83,6 +83,7 @@ export function toApplicationDto(application: ApplicationWithEvents) {
     externalApplicationTrackingUrl: application.externalApplicationTrackingUrl,
     notes: application.notes,
     interviewDates: parseApplicationInterviewDates(application.interviewDates),
+    interviewRound: application.interviewRound,
     links: parseApplicationLinks(application.links),
     submittedResumeRunId: application.submittedResumeRunId,
     status: application.status,

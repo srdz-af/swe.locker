@@ -4,7 +4,15 @@ export type HealthResponse = {
   timestamp: string;
 };
 
-export type ApplicationStatus = "APPLIED" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
+export type ApplicationStatus =
+  | "APPLIED"
+  | "INTERVIEW"
+  | "OFFER"
+  | "HIRED"
+  | "REJECTED"
+  | "DECLINED"
+  | "GHOSTED"
+  | "WITHDRAWN";
 export type ApplicationEventType = "CREATED" | "STATUS_CHANGED";
 export type ResumeTier = "S" | "A" | "B" | "C";
 
@@ -62,6 +70,7 @@ export type ApplicationDto = {
   externalApplicationTrackingUrl: string | null;
   notes: string | null;
   interviewDates: ApplicationInterviewDateDto[];
+  interviewRound: number | null;
   links: ApplicationLinkDto[];
   submittedResumeRunId: string | null;
   status: ApplicationStatus;
@@ -175,8 +184,27 @@ export type UpdateApplicationStatusRequest = {
 export type UpdateApplicationDetailsRequest = {
   notes?: string | null;
   interviewDates?: ApplicationInterviewDateDto[];
+  interviewRound?: number | null;
   links?: ApplicationLinkDto[];
   submittedResumeRunId?: string | null;
+};
+
+export type RestoreApplicationSnapshotRequest = {
+  id: string;
+  jobPostingId: string | null;
+  company: string;
+  role: string;
+  jobPostingUrl?: string | null;
+  externalApplicationTrackingUrl?: string | null;
+  notes?: string | null;
+  interviewDates?: ApplicationInterviewDateDto[];
+  interviewRound?: number | null;
+  links?: ApplicationLinkDto[];
+  submittedResumeRunId?: string | null;
+  status: ApplicationStatus;
+  archivedAt?: string | null;
+  createdAt?: string;
+  events?: ApplicationEventDto[];
 };
 
 export type CreateResumeRunRequest = {
@@ -185,3 +213,5 @@ export type CreateResumeRunRequest = {
   parsedText: string;
   createdAt?: string;
 };
+
+export type RestoreResumeRunSnapshotRequest = ResumeRunDto;

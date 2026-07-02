@@ -11,24 +11,21 @@ import { Button, Checkbox, Tile } from "@carbon/react";
 import { Download } from "@carbon/icons-react";
 import { AlluvialChart as CarbonAlluvialChart, alluvial as carbonAlluvialConfig } from "@carbon/charts";
 import type { AlluvialChartOptions, ChartTabularData } from "@carbon/charts";
-import { DonutChart, RadarChart } from "@carbon/charts-react";
-import type { DonutChartOptions, RadarChartOptions } from "@carbon/charts-react";
+import { RadarChart } from "@carbon/charts-react";
+import type { RadarChartOptions } from "@carbon/charts-react";
 import type {
   ApplicationActivityDayDto,
-  ApplicationDto,
-  ApplicationStatus,
-  JobPostingDto
+  ApplicationDto
 } from "../../../../shared/src/index";
-import { applicationStatuses, getApplicationStatusColor, getResumeGradeColor } from "../../constants";
+import { getApplicationStatusColor, getResumeGradeColor } from "../../constants";
 import type { ResumeGraderRun, ThemeMode } from "../../types/app";
 import { formatApplicationTooltipValue } from "../../utils/format";
 
-const applicationOutcomeColors = Object.fromEntries(applicationStatuses.map((option) => [option.label, option.color]));
 const carbonCompanyGradientLight = ["#002d9c", "#0f62fe", "#4589ff", "#8a3ffc", "#a56eff"];
 const carbonCompanyGradientDark = ["#33b1ff", "#4589ff", "#78a9ff", "#be95ff", "#d4bbff"];
-const trackingResultsAlluvialNodePadding = 8;
+const trackingResultsAlluvialNodePadding = 18;
 
-// Carbon's default 24px minimum collapses link width when a 30rem chart has many company nodes.
+// Carbon's default 24px minimum can collapse link width when a compact chart has many company nodes.
 carbonAlluvialConfig.minNodePadding = Math.min(carbonAlluvialConfig.minNodePadding, trackingResultsAlluvialNodePadding);
 
 function TrackingResultsAlluvialChart({
@@ -51,7 +48,7 @@ function TrackingResultsAlluvialChart({
     const chartHolder = document.createElement("div");
     chartHolder.className = "chart-holder";
     chartContainer.replaceChildren(chartHolder);
-    const chart = new CarbonAlluvialChart(chartHolder, { data, options });
+    const chart = createCarbonAlluvialChart(chartHolder, { data, options });
     onExporterChange?.(() => chart.services.domUtils.exportToPNG());
 
     return () => {
@@ -62,6 +59,30 @@ function TrackingResultsAlluvialChart({
   }, [data, onExporterChange, options]);
 
   return <div className="tracking-results-chart__core" ref={chartContainerRef} />;
+}
+
+function createCarbonAlluvialChart(
+  holder: HTMLDivElement,
+  config: {
+    data: ChartTabularData;
+    options: AlluvialChartOptions;
+  }
+) {
+  const originalWarn = console.warn;
+
+  console.warn = (...args: Parameters<typeof console.warn>) => {
+    if (typeof args[0] === "string" && /^".+" does not exist in data groups\.$/.test(args[0])) {
+      return;
+    }
+
+    originalWarn(...args);
+  };
+
+  try {
+    return new CarbonAlluvialChart(holder, config);
+  } finally {
+    console.warn = originalWarn;
+  }
 }
 
 type IncomingInterviewItem = {
@@ -83,17 +104,21 @@ type IncomingCalendarDay = {
 };
 
 const calendarWeekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function getApplicationStatusCounts(applications: ApplicationDto[]) {
-  const counts = new Map<ApplicationStatus, number>();
-  for (const option of applicationStatuses) {
-    counts.set(option.status, 0);
-  }
-  for (const application of applications) {
-    counts.set(application.status, (counts.get(application.status) ?? 0) + 1);
-  }
-  return counts;
-}
+const alluvialUnderReviewStage = "Under review";
+const alluvialOfferStage = "Offer";
+const alluvialRejectedStage = "Rejected";
+const alluvialHiredResult = "Hired";
+const alluvialDeclinedResult = "Declined";
+const alluvialGhostedResult = "Ghosted";
+const alluvialWithdrawnResult = "Withdrawn";
+const alluvialLayoutGroup = "__layout";
+const alluvialOfferStageOrder = [alluvialOfferStage, alluvialRejectedStage];
+const alluvialResultOrder = [alluvialHiredResult, alluvialDeclinedResult, alluvialGhostedResult, alluvialWithdrawnResult];
+const alluvialDirectTerminalResults = [alluvialGhostedResult, alluvialWithdrawnResult];
+const maxAlluvialInterviewRound = 20;
+const trackingResultsChartBaseHeightRem = 20;
+const trackingResultsChartCompanyRowRem = 1.25;
+const trackingResultsChartDepthNodeRowRem = 1.75;
 
 function getActivityLevel(count: number, maxCount: number) {
   if (count <= 0) {
@@ -203,7 +228,7 @@ function getIncomingInterviews(applications: ApplicationDto[]) {
 
   return applications
     .flatMap((application) => {
-      if (application.status !== "INTERVIEW") {
+      if (application.archivedAt || application.status !== "INTERVIEW") {
         return [];
       }
 
@@ -287,48 +312,25 @@ function getInterviewDayLabel(day: IncomingCalendarDay) {
   return `${formatIncomingCalendarDate(day.date)}: ${interviewDetails}`;
 }
 
-function getApplicationReviewStage(application: ApplicationDto) {
-  if (application.status === "APPLIED") {
-    return "Resume pending";
-  }
-
-  if (application.status === "REJECTED") {
-    return hasReachedInterview(application) ? "Interview" : "Resume rejected";
-  }
-
-  return "Interview";
+function getAlluvialInterviewStage(round: number) {
+  return round === 1 ? "Interview" : `Round ${round}`;
 }
 
-function getApplicationResultStage(application: ApplicationDto) {
-  if (application.status === "OFFER" || application.status === "HIRED") {
-    return "Offer";
-  }
-
-  if (application.status === "REJECTED") {
-    return "Rejected";
-  }
-
-  return "In progress";
+function getAlluvialInterviewStageOrder(maxRound: number) {
+  return Array.from({ length: Math.max(0, maxRound) }, (_value, index) => getAlluvialInterviewStage(index + 1));
 }
 
-function getApplicationAlluvialColorGroup(application: ApplicationDto) {
-  if (application.status === "INTERVIEW") {
-    return "Interview";
-  }
-
-  if (application.status === "OFFER" || application.status === "HIRED") {
-    return "Offer";
-  }
-
-  if (application.status === "REJECTED") {
-    return "Rejected";
-  }
-
-  return "Applied";
+function isAlluvialInterviewStage(stage: string) {
+  return stage === "Interview" || /^r\d+$/.test(stage) || /^Round \d+$/.test(stage);
 }
 
 function hasReachedInterview(application: ApplicationDto) {
-  if (application.status === "INTERVIEW" || application.status === "OFFER" || application.status === "HIRED") {
+  if (
+    application.status === "INTERVIEW" ||
+    application.status === "OFFER" ||
+    application.status === "HIRED" ||
+    application.status === "DECLINED"
+  ) {
     return true;
   }
 
@@ -337,10 +339,108 @@ function hasReachedInterview(application: ApplicationDto) {
       event.newStatus === "INTERVIEW" ||
       event.newStatus === "OFFER" ||
       event.newStatus === "HIRED" ||
+      event.newStatus === "DECLINED" ||
       event.previousStatus === "INTERVIEW" ||
       event.previousStatus === "OFFER" ||
-      event.previousStatus === "HIRED"
+      event.previousStatus === "HIRED" ||
+      event.previousStatus === "DECLINED"
   );
+}
+
+function getApplicationInterviewRound(application: ApplicationDto) {
+  if (!hasReachedInterview(application)) {
+    return 0;
+  }
+
+  const round = application.interviewRound ?? 1;
+  if (!Number.isInteger(round)) {
+    return 1;
+  }
+
+  return Math.max(1, Math.min(maxAlluvialInterviewRound, round));
+}
+
+function getApplicationAlluvialPath(application: ApplicationDto) {
+  const path = [application.company, alluvialUnderReviewStage];
+
+  if (application.status === "APPLIED") {
+    return path;
+  }
+
+  const reachedInterview = hasReachedInterview(application);
+
+  if (application.status === "REJECTED" && !reachedInterview) {
+    return [...path, alluvialRejectedStage];
+  }
+
+  const interviewRound = getApplicationInterviewRound(application);
+  for (let round = 1; round <= interviewRound; round += 1) {
+    path.push(getAlluvialInterviewStage(round));
+  }
+
+  if (application.status === "INTERVIEW") {
+    return path;
+  }
+
+  if (application.status === "REJECTED") {
+    return [...path, alluvialRejectedStage];
+  }
+
+  if (application.status === "GHOSTED") {
+    return [...path, alluvialGhostedResult];
+  }
+
+  if (application.status === "WITHDRAWN") {
+    return [...path, alluvialWithdrawnResult];
+  }
+
+  path.push(alluvialOfferStage);
+
+  if (application.status === "OFFER") {
+    return path;
+  }
+
+  if (application.status === "HIRED") {
+    return [...path, alluvialHiredResult];
+  }
+
+  if (application.status === "DECLINED") {
+    return [...path, alluvialDeclinedResult];
+  }
+
+  return path;
+}
+
+function getApplicationAlluvialColorGroup(application: ApplicationDto) {
+  if (application.status === "HIRED") {
+    return alluvialHiredResult;
+  }
+
+  if (application.status === "DECLINED") {
+    return alluvialDeclinedResult;
+  }
+
+  if (application.status === "GHOSTED") {
+    return alluvialGhostedResult;
+  }
+
+  if (application.status === "WITHDRAWN") {
+    return alluvialWithdrawnResult;
+  }
+
+  if (application.status === "REJECTED") {
+    return alluvialRejectedStage;
+  }
+
+  if (application.status === "OFFER") {
+    return alluvialOfferStage;
+  }
+
+  if (application.status === "INTERVIEW") {
+    return getAlluvialInterviewStage(getApplicationInterviewRound(application) || 1);
+  }
+
+  return alluvialUnderReviewStage;
 }
 
 function incrementAlluvialLink(
@@ -365,42 +465,46 @@ function incrementAlluvialLink(
   });
 }
 
-function getAlluvialReviewStageColor(stage: string) {
-  const reviewStageColors: Record<string, string> = {
-    Interview: getApplicationStatusColor("INTERVIEW"),
-    "Resume pending": getApplicationStatusColor("APPLIED"),
-    "Resume rejected": getApplicationStatusColor("REJECTED")
-  };
-
-  return reviewStageColors[stage] ?? getApplicationStatusColor("INTERVIEW");
-}
-
-function getAlluvialResultStageColor(result: string) {
-  const resultStageColors: Record<string, string> = {
-    "In progress": getApplicationStatusColor("APPLIED"),
-    Offer: getApplicationStatusColor("OFFER"),
-    Rejected: getApplicationStatusColor("REJECTED")
-  };
-
-  return resultStageColors[result] ?? getApplicationStatusColor("APPLIED");
-}
-
-function getAlluvialNodeColorScale(
-  companies: string[],
-  reviewStages: string[],
-  resultStages: string[],
-  themeMode: ThemeMode
+function addAlluvialLayoutLink(
+  counts: Map<string, { group: string; source: string; target: string; value: number }>,
+  source: string,
+  target: string
 ) {
+  counts.set(`${source}\u0000${target}\u0000${alluvialLayoutGroup}`, {
+    group: alluvialLayoutGroup,
+    source,
+    target,
+    value: 0
+  });
+}
+
+function getAlluvialStageColor(stage: string) {
+  if (isAlluvialInterviewStage(stage)) {
+    return getApplicationStatusColor("INTERVIEW");
+  }
+
+  const stageColors: Record<string, string> = {
+    [alluvialUnderReviewStage]: getApplicationStatusColor("APPLIED"),
+    [alluvialOfferStage]: getApplicationStatusColor("OFFER"),
+    [alluvialRejectedStage]: getApplicationStatusColor("REJECTED"),
+    [alluvialHiredResult]: getApplicationStatusColor("HIRED"),
+    [alluvialDeclinedResult]: getApplicationStatusColor("DECLINED"),
+    [alluvialGhostedResult]: getApplicationStatusColor("GHOSTED"),
+    [alluvialWithdrawnResult]: getApplicationStatusColor("WITHDRAWN")
+  };
+
+  return stageColors[stage] ?? getApplicationStatusColor("APPLIED");
+}
+
+function getAlluvialNodeColorScale(companies: string[], stages: string[], themeMode: ThemeMode) {
   const companyColors = Object.fromEntries(
     companies.map((company, index) => [company, getCompanyGradientColor(index, companies.length, themeMode)])
   );
-  const reviewStageColors = Object.fromEntries(reviewStages.map((stage) => [stage, getAlluvialReviewStageColor(stage)]));
-  const resultStageColors = Object.fromEntries(resultStages.map((result) => [result, getAlluvialResultStageColor(result)]));
+  const stageColors = Object.fromEntries(stages.map((stage) => [stage, getAlluvialStageColor(stage)]));
 
   return {
     ...companyColors,
-    ...reviewStageColors,
-    ...resultStageColors
+    ...stageColors
   };
 }
 
@@ -446,6 +550,36 @@ function parseHexColor(hexColor: string) {
   ];
 }
 
+function getIncludedAlluvialStages(paths: string[][], stageOrder: string[]) {
+  return stageOrder.filter((stage) => paths.some((path) => path.includes(stage)));
+}
+
+function getIncludedAlluvialDirectTerminalResults(paths: string[][]) {
+  return alluvialDirectTerminalResults.filter((result) => paths.some((path) => path.includes(result)));
+}
+
+function getMaxAlluvialPathDepthNodeCount(paths: string[][]) {
+  const nodesByDepth = new Map<number, Set<string>>();
+
+  for (const path of paths) {
+    path.forEach((node, depth) => {
+      const depthNodes = nodesByDepth.get(depth) ?? new Set<string>();
+      depthNodes.add(node);
+      nodesByDepth.set(depth, depthNodes);
+    });
+  }
+
+  return Math.max(0, ...Array.from(nodesByDepth.values(), (nodes) => nodes.size));
+}
+
+function getTrackingResultsChartMinHeight(companyCount: number, maxDepthNodeCount: number) {
+  return `${Math.max(
+    trackingResultsChartBaseHeightRem,
+    companyCount * trackingResultsChartCompanyRowRem,
+    maxDepthNodeCount * trackingResultsChartDepthNodeRowRem
+  )}rem`;
+}
+
 const TrackingResultsTile = memo(function TrackingResultsTile({
   applications = [],
   isChartActive = false,
@@ -459,34 +593,77 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
   const [showAlluvialLabels, setShowAlluvialLabels] = useState(true);
   const [canExportAlluvialPng, setCanExportAlluvialPng] = useState(false);
   const alluvialExportPngRef = useRef<(() => void) | null>(null);
+  const maxRenderedInterviewRound = useMemo(
+    () => Math.max(0, ...applications.map(getApplicationInterviewRound)),
+    [applications]
+  );
+  const alluvialPaths = useMemo(() => applications.map(getApplicationAlluvialPath), [applications]);
+  const alluvialInterviewStageOrder = useMemo(
+    () => getAlluvialInterviewStageOrder(maxRenderedInterviewRound),
+    [maxRenderedInterviewRound]
+  );
   const alluvialChartData = useMemo<ChartTabularData>(() => {
     const linkCounts = new Map<string, { group: string; source: string; target: string; value: number }>();
 
-    for (const application of applications) {
-      const reviewStage = getApplicationReviewStage(application);
-      const resultStage = getApplicationResultStage(application);
+    for (const [applicationIndex, application] of applications.entries()) {
+      const path = alluvialPaths[applicationIndex];
       const colorGroup = getApplicationAlluvialColorGroup(application);
 
-      incrementAlluvialLink(linkCounts, colorGroup, application.company, reviewStage);
-      incrementAlluvialLink(linkCounts, colorGroup, reviewStage, resultStage);
+      for (let pathIndex = 0; pathIndex < path.length - 1; pathIndex += 1) {
+        incrementAlluvialLink(linkCounts, colorGroup, path[pathIndex], path[pathIndex + 1]);
+      }
+    }
+
+    if (maxRenderedInterviewRound > 0) {
+      const lastInterviewStage = getAlluvialInterviewStage(maxRenderedInterviewRound);
+      const hasOfferStage = alluvialPaths.some((path) => path.includes(alluvialOfferStage));
+      const directTerminalResults = getIncludedAlluvialDirectTerminalResults(alluvialPaths);
+
+      if (hasOfferStage) {
+        addAlluvialLayoutLink(linkCounts, lastInterviewStage, alluvialOfferStage);
+      }
+
+      if (alluvialPaths.some((path) => path.includes(alluvialRejectedStage))) {
+        addAlluvialLayoutLink(linkCounts, lastInterviewStage, alluvialRejectedStage);
+      }
+
+      for (const result of directTerminalResults) {
+        addAlluvialLayoutLink(linkCounts, hasOfferStage ? alluvialOfferStage : lastInterviewStage, result);
+      }
     }
 
     return Array.from(linkCounts.values()).sort(
       (left, right) =>
         left.source.localeCompare(right.source) || left.target.localeCompare(right.target) || left.group.localeCompare(right.group)
     );
-  }, [applications]);
+  }, [alluvialPaths, applications, maxRenderedInterviewRound]);
   const alluvialCompanies = useMemo(() => Array.from(new Set(applications.map((application) => application.company))).sort(), [applications]);
-  const alluvialReviewStages = useMemo(
-    () => Array.from(new Set(applications.map(getApplicationReviewStage))).sort(),
-    [applications]
+  const alluvialResumeStages = useMemo(
+    () => (alluvialPaths.length > 0 ? [alluvialUnderReviewStage] : []),
+    [alluvialPaths.length]
+  );
+  const alluvialInterviewStages = useMemo(
+    () => getIncludedAlluvialStages(alluvialPaths, alluvialInterviewStageOrder),
+    [alluvialInterviewStageOrder, alluvialPaths]
+  );
+  const alluvialOfferStages = useMemo(
+    () => getIncludedAlluvialStages(alluvialPaths, alluvialOfferStageOrder),
+    [alluvialPaths]
   );
   const alluvialResultStages = useMemo(
-    () => Array.from(new Set(applications.map(getApplicationResultStage))).sort(),
-    [applications]
+    () => getIncludedAlluvialStages(alluvialPaths, alluvialResultOrder),
+    [alluvialPaths]
   );
+  const alluvialStages = useMemo(
+    () => [...alluvialResumeStages, ...alluvialInterviewStages, ...alluvialOfferStages, ...alluvialResultStages],
+    [alluvialInterviewStages, alluvialOfferStages, alluvialResultStages, alluvialResumeStages]
+  );
+  const maxAlluvialPathDepthNodeCount = useMemo(() => getMaxAlluvialPathDepthNodeCount(alluvialPaths), [alluvialPaths]);
   const alluvialChartHeight = "100%";
-  const trackingResultsChartMinHeight = "14rem";
+  const trackingResultsChartMinHeight = useMemo(
+    () => getTrackingResultsChartMinHeight(alluvialCompanies.length, maxAlluvialPathDepthNodeCount),
+    [alluvialCompanies.length, maxAlluvialPathDepthNodeCount]
+  );
   const trackingResultsChartStyle = { "--tracking-results-chart-min-height": trackingResultsChartMinHeight } as CSSProperties;
   const alluvialChartKey = useMemo(
     () => `${themeMode}-${alluvialChartData.map((item) => `${item.group}:${item.source}:${item.target}:${item.value}`).join("|")}`,
@@ -496,11 +673,10 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
     () =>
       getAlluvialNodeColorScale(
         alluvialCompanies,
-        alluvialReviewStages,
-        alluvialResultStages,
+        alluvialStages,
         themeMode
       ),
-    [alluvialCompanies, alluvialResultStages, alluvialReviewStages, themeMode]
+    [alluvialCompanies, alluvialStages, themeMode]
   );
   const handleAlluvialExporterChange = useCallback((exporter: (() => void) | null) => {
     alluvialExportPngRef.current = exporter;
@@ -512,21 +688,29 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
   const alluvialChartOptions = useMemo<AlluvialChartOptions>(
     () => ({
       accessibility: {
-        svgAriaLabel: "Tracked applications by company, status, and result"
+        svgAriaLabel: "Tracked applications by company, review stage, interview rounds, offer stage, and result"
       },
       alluvial: {
         nodes: [
           ...alluvialCompanies.map((company) => ({
             name: company,
-            category: "Company"
+            category: ""
           })),
-          ...alluvialReviewStages.map((stage) => ({
+          ...alluvialResumeStages.map((stage) => ({
             name: stage,
-            category: "Status"
+            category: ""
+          })),
+          ...alluvialInterviewStages.map((stage) => ({
+            name: stage,
+            category: ""
+          })),
+          ...alluvialOfferStages.map((stage) => ({
+            name: stage,
+            category: ""
           })),
           ...alluvialResultStages.map((result) => ({
             name: result,
-            category: "Result"
+            category: ""
           }))
         ],
         nodeAlignment: "left",
@@ -557,7 +741,16 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
         valueFormatter: (value) => formatApplicationTooltipValue(value)
       }
     }),
-    [alluvialChartHeight, alluvialCompanies, alluvialNodeColorScale, alluvialResultStages, alluvialReviewStages, themeMode]
+    [
+      alluvialChartHeight,
+      alluvialCompanies,
+      alluvialInterviewStages,
+      alluvialNodeColorScale,
+      alluvialOfferStages,
+      alluvialResultStages,
+      alluvialResumeStages,
+      themeMode
+    ]
   );
 
   useEffect(() => {
@@ -583,7 +776,7 @@ const TrackingResultsTile = memo(function TrackingResultsTile({
         <div className="section-header">
           <div>
             <h2>Tracking results</h2>
-            <p>Company to status to outcome</p>
+            <p>Company to review, interview, and outcome</p>
           </div>
           <div className="tracking-results-controls">
             <Button
@@ -874,132 +1067,16 @@ const ApplicationActivityHeatmapTile = memo(function ApplicationActivityHeatmapT
   );
 });
 
-const StatsOverviewTile = memo(function StatsOverviewTile({
-  applications,
-  postings,
-  themeMode
-}: {
-  applications: ApplicationDto[];
-  postings: JobPostingDto[];
-  themeMode: ThemeMode;
-}) {
-  const applicationCountsByStatus = useMemo(() => getApplicationStatusCounts(applications), [applications]);
-  const postingStats = useMemo(
-    () => [
-      { label: "Total postings", value: postings.length },
-      { label: "New today", value: postings.filter((posting) => posting.isNewToday).length }
-    ],
-    [postings]
-  );
-  const applicationOutcomeData = useMemo<ChartTabularData>(
-    () =>
-      applicationStatuses
-        .map((option) => ({
-          group: option.label,
-          value: applicationCountsByStatus.get(option.status) ?? 0
-        }))
-        .filter((item) => item.value > 0),
-    [applicationCountsByStatus]
-  );
-  const applicationOutcomeColorScale = useMemo(
-    () =>
-      Object.fromEntries(
-        applicationOutcomeData
-          .map((item) => item.group)
-          .filter((group): group is string => typeof group === "string")
-          .map((group) => [group, applicationOutcomeColors[group] ?? getApplicationStatusColor("APPLIED")])
-      ),
-    [applicationOutcomeData]
-  );
-  const applicationOutcomeOptions = useMemo<DonutChartOptions>(
-    () => ({
-      accessibility: {
-        svgAriaLabel: "Application outcomes by status"
-      },
-      color: {
-        scale: applicationOutcomeColorScale
-      },
-      data: {
-        groupMapsTo: "group"
-      },
-      donut: {
-        alignment: "center",
-        center: {
-          label: "Tracked",
-          number: applications.length,
-          numberFontSize: () => "1.5rem",
-          titleFontSize: () => "0.75rem"
-        }
-      },
-      height: "100%",
-      legend: {
-        alignment: "center",
-        enabled: true,
-        position: "bottom"
-      },
-      pie: {
-        alignment: "center",
-        labels: {
-          enabled: false
-        },
-        valueMapsTo: "value"
-      },
-      theme: themeMode === "dark" ? "g100" : "white",
-      toolbar: {
-        enabled: false
-      },
-      tooltip: {
-        valueFormatter: (value) => formatApplicationTooltipValue(value)
-      }
-    }),
-    [applicationOutcomeColorScale, applications.length, themeMode]
-  );
-
-  return (
-    <Tile className="stats-overview-tile">
-      <div className="section-header">
-        <div>
-          <h2>Overview</h2>
-          <p>Posting volume and active application outcomes</p>
-        </div>
-      </div>
-      <div className="stats-overview-grid">
-        <div className="stats-strip stats-strip--postings" aria-label="Posting stats">
-          {postingStats.map((stat) => (
-            <div className="stats-strip__item" key={stat.label}>
-              <span>{stat.label}</span>
-              <strong>{stat.value}</strong>
-            </div>
-          ))}
-        </div>
-
-        <div className="application-outcome-chart" aria-label="Application outcomes">
-          {applicationOutcomeData.length > 0 ? (
-            <DonutChart data={applicationOutcomeData} options={applicationOutcomeOptions} />
-          ) : (
-            <div className="posting-empty">
-              <p>No application outcomes yet.</p>
-              <span>Tracked applications will appear here.</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </Tile>
-  );
-});
-
 export const StatsPanel = memo(function StatsPanel({
   activityDays,
   applications,
   isChartActive,
-  postings,
   resumeRuns,
   themeMode
 }: {
   activityDays: ApplicationActivityDayDto[];
   applications: ApplicationDto[];
   isChartActive: boolean;
-  postings: JobPostingDto[];
   resumeRuns: ResumeGraderRun[];
   themeMode: ThemeMode;
 }) {
@@ -1007,7 +1084,6 @@ export const StatsPanel = memo(function StatsPanel({
     <div className="stats-stack">
       <div className="stats-top-row">
         <TrackingResultsTile applications={applications} isChartActive={isChartActive} themeMode={themeMode} />
-        <StatsOverviewTile applications={applications} postings={postings} themeMode={themeMode} />
       </div>
       <div className="stats-activity-row">
         <IncomingInterviewsCalendarTile applications={applications} />

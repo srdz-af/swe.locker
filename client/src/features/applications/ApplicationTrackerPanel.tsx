@@ -7,12 +7,17 @@ import {
   Modal,
   Select,
   SelectItem,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
   Tag,
   TextInput,
   Tile,
   TimePicker
 } from "@carbon/react";
-import { Add, Archive, Launch, Save, TrashCan } from "@carbon/icons-react";
+import { Add, Archive, Edit, Launch, Save, TrashCan } from "@carbon/icons-react";
 import type {
   ApplicationDto,
   ApplicationInterviewDateDto,
@@ -22,7 +27,12 @@ import type {
   UpdateApplicationDetailsRequest
 } from "../../../../shared/src/index";
 import { TextModePanel, type TextMode } from "../../components/TextModePanel";
-import { applicationStatuses, getApplicationStatusColor, modalPrimaryFocusSelector } from "../../constants";
+import {
+  activeApplicationStatuses,
+  applicationStatuses,
+  getApplicationStatusColor,
+  modalPrimaryFocusSelector
+} from "../../constants";
 import { formatDate } from "../../utils/format";
 
 type InterviewDateInput = {
@@ -30,12 +40,14 @@ type InterviewDateInput = {
   label: string;
   date: string;
   time: string;
+  mode: "display" | "draft";
 };
 
 type ApplicationLinkInput = {
   id: string;
   label: string;
   url: string;
+  mode: "display" | "draft";
 };
 
 type SystemApplicationLink = {
@@ -43,6 +55,17 @@ type SystemApplicationLink = {
   label: string;
   url: string;
 };
+
+const maxApplicationInterviewRound = 20;
+
+function getApplicationStatusOptions(application: ApplicationDto) {
+  return applicationStatuses.filter(
+    (option) =>
+      (option.status !== "DECLINED" && option.status !== "HIRED") ||
+      application.status === "OFFER" ||
+      application.status === option.status
+  );
+}
 
 function ApplicationCard({
   application,
@@ -98,7 +121,7 @@ function ApplicationCard({
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => void onStatusChange(application, event.target.value as ApplicationStatus)}
         >
-          {applicationStatuses.map((option) => (
+          {getApplicationStatusOptions(application).map((option) => (
             <SelectItem key={option.status} text={option.label} value={option.status} />
           ))}
         </Select>
@@ -127,6 +150,7 @@ function ApplicationDetailsPanel({
   const [notes, setNotes] = useState("");
   const [notesMode, setNotesMode] = useState<TextMode>("preview");
   const [interviewDates, setInterviewDates] = useState<InterviewDateInput[]>([]);
+  const [interviewRound, setInterviewRound] = useState("1");
   const [links, setLinks] = useState<ApplicationLinkInput[]>([]);
   const [submittedResumeRunId, setSubmittedResumeRunId] = useState("");
   const [detailsError, setDetailsError] = useState<string | null>(null);
@@ -136,6 +160,7 @@ function ApplicationDetailsPanel({
     setNotesMode("preview");
     setNotes(application?.notes ?? "");
     setInterviewDates(application?.interviewDates.map(createInterviewDateInputFromDto) ?? []);
+    setInterviewRound(String(application.interviewRound ?? 1));
     setLinks(application?.links.map(createApplicationLinkInputFromDto) ?? []);
     setSubmittedResumeRunId(application.submittedResumeRunId ?? "");
   }, [application.id]);
@@ -146,6 +171,7 @@ function ApplicationDetailsPanel({
       await onSave(application, {
         notes,
         interviewDates: serializeInterviewDates(interviewDates),
+        interviewRound: application.status === "INTERVIEW" ? serializeInterviewRound(interviewRound) : application.interviewRound,
         links: serializeApplicationLinks(links),
         submittedResumeRunId: submittedResumeRunId || null
       });
@@ -159,7 +185,7 @@ function ApplicationDetailsPanel({
       setDetailsError(null);
       await onArchive(application);
     } catch (error) {
-      setDetailsError(error instanceof Error ? error.message : "Could not archive application.");
+      setDetailsError(error instanceof Error ? error.message : `Could not ${application.archivedAt ? "unarchive" : "archive"} application.`);
     }
   }
 
@@ -169,6 +195,36 @@ function ApplicationDetailsPanel({
       await onDelete(application);
     } catch (error) {
       setDetailsError(error instanceof Error ? error.message : "Could not delete application.");
+    }
+  }
+
+  function handleCommitInterviewDate(interviewDate: InterviewDateInput, interviewDateIndex: number) {
+    try {
+      validateInterviewDateInput(interviewDate, interviewDateIndex);
+      setDetailsError(null);
+      setInterviewDates((currentDates) =>
+        currentDates.map((currentDate) =>
+          currentDate.id === interviewDate.id ? { ...currentDate, mode: "display" } : currentDate
+        )
+      );
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : `Invalid interview ${interviewDateIndex + 1}.`);
+    }
+  }
+
+  function handleCommitLink(link: ApplicationLinkInput, linkIndex: number) {
+    try {
+      if (!link.url.trim()) {
+        throw new Error(`Link ${linkIndex + 1} needs a URL.`);
+      }
+
+      normalizeUrl(link.url.trim());
+      setDetailsError(null);
+      setLinks((currentLinks) =>
+        currentLinks.map((currentLink) => (currentLink.id === link.id ? { ...currentLink, mode: "display" } : currentLink))
+      );
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : `Invalid link ${linkIndex + 1}.`);
     }
   }
 
@@ -199,7 +255,7 @@ function ApplicationDetailsPanel({
               value={application.status}
               onChange={(event) => void onStatusChange(application, event.target.value as ApplicationStatus)}
             >
-              {applicationStatuses.map((option) => (
+              {getApplicationStatusOptions(application).map((option) => (
                 <SelectItem key={option.status} text={option.label} value={option.status} />
               ))}
             </Select>
@@ -210,7 +266,7 @@ function ApplicationDetailsPanel({
           <Button
             className="application-details-icon-action"
             hasIconOnly
-            iconDescription="Archive application"
+            iconDescription={application.archivedAt ? "Unarchive application" : "Archive application"}
             kind="ghost"
             renderIcon={Archive}
             size="sm"
@@ -301,90 +357,148 @@ function ApplicationDetailsPanel({
             </div>
             {interviewDates.length > 0 ? (
               <div className="application-interview-list">
-                {interviewDates.map((interviewDate, interviewDateIndex) => (
-                  <div className="application-interview-row" key={interviewDate.id}>
-                    <TextInput
-                      disabled={!canEditInterviewDates}
-                      hideLabel
-                      id={`application-interview-label-${application.id}-${interviewDate.id}`}
-                      labelText={`Interview ${interviewDateIndex + 1} label`}
-                      placeholder={`Interview ${interviewDateIndex + 1}`}
-                      size="sm"
-                      value={interviewDate.label}
-                      onChange={(event) =>
-                        setInterviewDates((currentDates) =>
-                          currentDates.map((currentDate) =>
-                            currentDate.id === interviewDate.id ? { ...currentDate, label: event.target.value } : currentDate
-                          )
-                        )
-                      }
-                    />
-                    <DatePicker
-                      dateFormat="M j"
-                      datePickerType="single"
-                      value={parseDatePickerValue(interviewDate.date)}
-                      onChange={(selectedDates: Date[]) => {
-                        if (!canEditInterviewDates) {
-                          return;
-                        }
+                {interviewDates.map((interviewDate, interviewDateIndex) => {
+                  const displayDate = getInterviewDateDisplayParts(interviewDate, interviewDateIndex);
 
-                        const selectedDate = selectedDates[0];
-                        if (!selectedDate) {
-                          return;
-                        }
-
-                        setInterviewDates((currentDates) =>
-                          currentDates.map((currentDate) =>
-                            currentDate.id === interviewDate.id
-                              ? { ...currentDate, date: formatDateInputValue(selectedDate) }
-                              : currentDate
-                          )
-                        );
-                      }}
+                  return (
+                    <div
+                      className={`application-interview-row${
+                        interviewDate.mode === "draft" ? " application-interview-row--draft" : ""
+                      }`}
+                      key={interviewDate.id}
                     >
-                      <DatePickerInput
-                        id={`application-interview-date-${application.id}-${interviewDate.id}`}
-                        disabled={!canEditInterviewDates}
-                        hideLabel
-                        labelText={`Interview ${interviewDateIndex + 1} date`}
-                        placeholder="Jun 26"
-                        size="sm"
-                      />
-                    </DatePicker>
-                    <TimePicker
-                      id={`application-interview-time-${application.id}-${interviewDate.id}`}
-                      labelText={`Interview ${interviewDateIndex + 1} time`}
-                      size="sm"
-                      type="time"
-                      value={interviewDate.time}
-                      disabled={!canEditInterviewDates}
-                      hideLabel
-                      onChange={(event) =>
-                        setInterviewDates((currentDates) =>
-                          currentDates.map((currentDate) =>
-                            currentDate.id === interviewDate.id ? { ...currentDate, time: event.target.value } : currentDate
-                          )
-                        )
-                      }
-                    />
-                    <Button
-                      disabled={!canEditInterviewDates}
-                      hasIconOnly
-                      iconDescription={`Remove interview ${interviewDateIndex + 1}`}
-                      kind="ghost"
-                      renderIcon={TrashCan}
-                      size="sm"
-                      tooltipPosition="left"
-                      onClick={() =>
-                        setInterviewDates((currentDates) => currentDates.filter((currentDate) => currentDate.id !== interviewDate.id))
-                      }
-                    />
-                  </div>
-                ))}
+                      {interviewDate.mode === "display" ? (
+                        <>
+                          <span className="application-interview-row__label">{displayDate.label}</span>
+                          <span className="application-interview-row__value">{displayDate.date}</span>
+                          <span className="application-interview-row__value">{displayDate.time}</span>
+                          <Button
+                            disabled={!canEditInterviewDates}
+                            hasIconOnly
+                            iconDescription={`Edit interview ${interviewDateIndex + 1}`}
+                            kind="ghost"
+                            renderIcon={Edit}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() =>
+                              setInterviewDates((currentDates) =>
+                                currentDates.map((currentDate) =>
+                                  currentDate.id === interviewDate.id ? { ...currentDate, mode: "draft" } : currentDate
+                                )
+                              )
+                            }
+                          />
+                          <Button
+                            disabled={!canEditInterviewDates}
+                            hasIconOnly
+                            iconDescription={`Remove interview ${interviewDateIndex + 1}`}
+                            kind="ghost"
+                            renderIcon={TrashCan}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() =>
+                              setInterviewDates((currentDates) =>
+                                currentDates.filter((currentDate) => currentDate.id !== interviewDate.id)
+                              )
+                            }
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <TextInput
+                            disabled={!canEditInterviewDates}
+                            hideLabel
+                            id={`application-interview-label-${application.id}-${interviewDate.id}`}
+                            labelText={`Interview ${interviewDateIndex + 1} label`}
+                            placeholder={`Interview ${interviewDateIndex + 1}`}
+                            size="sm"
+                            value={interviewDate.label}
+                            onChange={(event) =>
+                              setInterviewDates((currentDates) =>
+                                currentDates.map((currentDate) =>
+                                  currentDate.id === interviewDate.id ? { ...currentDate, label: event.target.value } : currentDate
+                                )
+                              )
+                            }
+                          />
+                          <DatePicker
+                            dateFormat="M j"
+                            datePickerType="single"
+                            value={parseDatePickerValue(interviewDate.date)}
+                            onChange={(selectedDates: Date[]) => {
+                              if (!canEditInterviewDates) {
+                                return;
+                              }
+
+                              const selectedDate = selectedDates[0];
+                              if (!selectedDate) {
+                                return;
+                              }
+
+                              setInterviewDates((currentDates) =>
+                                currentDates.map((currentDate) =>
+                                  currentDate.id === interviewDate.id
+                                    ? { ...currentDate, date: formatDateInputValue(selectedDate) }
+                                    : currentDate
+                                )
+                              );
+                            }}
+                          >
+                            <DatePickerInput
+                              id={`application-interview-date-${application.id}-${interviewDate.id}`}
+                              disabled={!canEditInterviewDates}
+                              hideLabel
+                              labelText={`Interview ${interviewDateIndex + 1} date`}
+                              placeholder="Jun 26"
+                              size="sm"
+                            />
+                          </DatePicker>
+                          <TimePicker
+                            id={`application-interview-time-${application.id}-${interviewDate.id}`}
+                            labelText={`Interview ${interviewDateIndex + 1} time`}
+                            size="sm"
+                            type="time"
+                            value={interviewDate.time}
+                            disabled={!canEditInterviewDates}
+                            hideLabel
+                            onChange={(event) =>
+                              setInterviewDates((currentDates) =>
+                                currentDates.map((currentDate) =>
+                                  currentDate.id === interviewDate.id ? { ...currentDate, time: event.target.value } : currentDate
+                                )
+                              )
+                            }
+                          />
+                          <Button
+                            disabled={!canEditInterviewDates}
+                            hasIconOnly
+                            iconDescription={`Save interview ${interviewDateIndex + 1}`}
+                            kind="ghost"
+                            renderIcon={Save}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() => handleCommitInterviewDate(interviewDate, interviewDateIndex)}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="application-interview-empty">No interview dates.</p>
             )}
+            <TextInput
+              disabled={!canEditInterviewDates}
+              id={`application-interview-round-${application.id}`}
+              labelText="Current round"
+              max={maxApplicationInterviewRound}
+              min={1}
+              size="sm"
+              type="number"
+              value={interviewRound}
+              onChange={(event) => setInterviewRound(event.target.value)}
+            />
           </div>
           <div className="application-link-editor">
             <div className="application-link-editor__header">
@@ -405,9 +519,8 @@ function ApplicationDetailsPanel({
               <div className="application-link-list">
                 {systemLinks.map((link) => (
                   <div className="application-link-row application-link-row--system" key={link.id}>
-                    <span className="application-link-row__label">{link.label}</span>
-                    <a className="application-link-row__url" href={link.url} target="_blank" rel="noreferrer">
-                      {link.url}
+                    <a className="application-link-row__label application-link-row__label--link" href={link.url} target="_blank" rel="noreferrer">
+                      {link.label}
                     </a>
                     <a
                       aria-label={`Open ${link.label}`}
@@ -423,63 +536,95 @@ function ApplicationDetailsPanel({
 
                 {links.map((link, linkIndex) => {
                   const clickableUrl = getClickableUrl(link.url);
+                  const linkLabel = link.label.trim() || `Link ${linkIndex + 1}`;
 
                   return (
-                    <div className="application-link-row" key={link.id}>
-                      <TextInput
-                        hideLabel
-                        id={`application-link-label-${application.id}-${link.id}`}
-                        labelText={`Link ${linkIndex + 1} label`}
-                        placeholder="Label"
-                        size="sm"
-                        value={link.label}
-                        onChange={(event) =>
-                          setLinks((currentLinks) =>
-                            currentLinks.map((currentLink) =>
-                              currentLink.id === link.id ? { ...currentLink, label: event.target.value } : currentLink
-                            )
-                          )
-                        }
-                      />
-                      <TextInput
-                        hideLabel
-                        id={`application-link-url-${application.id}-${link.id}`}
-                        labelText={`Link ${linkIndex + 1} URL`}
-                        placeholder="https://example.com"
-                        size="sm"
-                        value={link.url}
-                        onChange={(event) =>
-                          setLinks((currentLinks) =>
-                            currentLinks.map((currentLink) =>
-                              currentLink.id === link.id ? { ...currentLink, url: event.target.value } : currentLink
-                            )
-                          )
-                        }
-                      />
-                      {clickableUrl ? (
-                        <a
-                          aria-label={`Open link ${linkIndex + 1}`}
-                          className="application-link-row__launch"
-                          href={clickableUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <Launch size={16} />
-                        </a>
+                    <div
+                      className={`application-link-row${link.mode === "draft" ? " application-link-row--draft" : ""}`}
+                      key={link.id}
+                    >
+                      {link.mode === "display" ? (
+                        <>
+                          {clickableUrl ? (
+                            <a
+                              className="application-link-row__label application-link-row__label--link"
+                              href={clickableUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {linkLabel}
+                            </a>
+                          ) : (
+                            <span className="application-link-row__label">{linkLabel}</span>
+                          )}
+                          <Button
+                            hasIconOnly
+                            iconDescription={`Edit ${linkLabel}`}
+                            kind="ghost"
+                            renderIcon={Edit}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() =>
+                              setLinks((currentLinks) =>
+                                currentLinks.map((currentLink) =>
+                                  currentLink.id === link.id ? { ...currentLink, mode: "draft" } : currentLink
+                                )
+                              )
+                            }
+                          />
+                          <Button
+                            hasIconOnly
+                            iconDescription={`Remove ${linkLabel}`}
+                            kind="ghost"
+                            renderIcon={TrashCan}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() => setLinks((currentLinks) => currentLinks.filter((currentLink) => currentLink.id !== link.id))}
+                          />
+                        </>
                       ) : (
-                        <span aria-hidden="true" className="application-link-row__launch application-link-row__launch--disabled">
-                          <Launch size={16} />
-                        </span>
+                        <>
+                          <TextInput
+                            hideLabel
+                            id={`application-link-label-${application.id}-${link.id}`}
+                            labelText={`Link ${linkIndex + 1} label`}
+                            placeholder="Label"
+                            size="sm"
+                            value={link.label}
+                            onChange={(event) =>
+                              setLinks((currentLinks) =>
+                                currentLinks.map((currentLink) =>
+                                  currentLink.id === link.id ? { ...currentLink, label: event.target.value } : currentLink
+                                )
+                              )
+                            }
+                          />
+                          <TextInput
+                            hideLabel
+                            id={`application-link-url-${application.id}-${link.id}`}
+                            labelText={`Link ${linkIndex + 1} URL`}
+                            placeholder="https://example.com"
+                            size="sm"
+                            value={link.url}
+                            onChange={(event) =>
+                              setLinks((currentLinks) =>
+                                currentLinks.map((currentLink) =>
+                                  currentLink.id === link.id ? { ...currentLink, url: event.target.value } : currentLink
+                                )
+                              )
+                            }
+                          />
+                          <Button
+                            hasIconOnly
+                            iconDescription={`Save link ${linkIndex + 1}`}
+                            kind="ghost"
+                            renderIcon={Save}
+                            size="sm"
+                            tooltipPosition="left"
+                            onClick={() => handleCommitLink(link, linkIndex)}
+                          />
+                        </>
                       )}
-                      <Button
-                        hasIconOnly
-                        iconDescription={`Remove link ${linkIndex + 1}`}
-                        kind="ghost"
-                        renderIcon={TrashCan}
-                        size="sm"
-                        tooltipPosition="left"
-                        onClick={() => setLinks((currentLinks) => currentLinks.filter((currentLink) => currentLink.id !== link.id))}
-                      />
                     </div>
                   );
                 })}
@@ -504,6 +649,7 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   onCreate,
   onDelete,
   onDetailsSave,
+  onPurgeArchived,
   onSelect,
   onStatusChange,
   resumeRuns = [],
@@ -516,24 +662,35 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
   onCreate: () => void;
   onDelete: (application: ApplicationDto) => Promise<void>;
   onDetailsSave: (application: ApplicationDto, details: UpdateApplicationDetailsRequest) => Promise<void>;
+  onPurgeArchived: (applications: ApplicationDto[]) => Promise<void>;
   onSelect: (application: ApplicationDto) => void;
   onStatusChange: (application: ApplicationDto, status: ApplicationStatus) => Promise<void>;
   resumeRuns?: ResumeRunDto[];
   selectedApplicationId: string | null;
 }) {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isPurgeConfirmOpen, setIsPurgeConfirmOpen] = useState(false);
+  const [isPurgingArchived, setIsPurgingArchived] = useState(false);
+  const activeApplications = useMemo(
+    () => applications.filter((application) => !application.archivedAt),
+    [applications]
+  );
+  const archivedApplications = useMemo(
+    () => applications.filter((application) => application.archivedAt),
+    [applications]
+  );
   const applicationsByStatus = useMemo(() => {
     const groupedApplications = new Map<ApplicationStatus, ApplicationDto[]>();
-    for (const option of applicationStatuses) {
+    for (const option of activeApplicationStatuses) {
       groupedApplications.set(option.status, []);
     }
 
-    for (const application of applications) {
+    for (const application of activeApplications) {
       groupedApplications.get(application.status)?.push(application);
     }
 
     return groupedApplications;
-  }, [applications]);
+  }, [activeApplications]);
   const selectedApplication = useMemo(
     () => applications.find((application) => application.id === selectedApplicationId) ?? null,
     [applications, selectedApplicationId]
@@ -550,13 +707,29 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
     setIsDetailsModalOpen(true);
   }
 
+  async function handlePurgeArchived() {
+    if (archivedApplications.length === 0 || isPurgingArchived) {
+      return;
+    }
+
+    setIsPurgingArchived(true);
+    try {
+      await onPurgeArchived(archivedApplications);
+      setIsPurgeConfirmOpen(false);
+    } finally {
+      setIsPurgingArchived(false);
+    }
+  }
+
   return (
     <div className="tracker-layout">
       <Tile className="tracker-tile">
         <div className="section-header">
           <div>
             <h2>Application tracker</h2>
-            <p>{applications.length} tracked applications</p>
+            <p>
+              {activeApplications.length} active, {archivedApplications.length} archived
+            </p>
           </div>
           <Button kind="primary" renderIcon={Add} size="sm" onClick={onCreate}>
             Add application
@@ -565,33 +738,74 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
 
         {isLoading ? <Loading description="Loading applications" withOverlay={false} /> : null}
 
-        <div className="kanban-board" aria-label="Application tracker board">
-          {applicationStatuses.map((option) => {
-            const columnApplications = applicationsByStatus.get(option.status) ?? [];
+        <div className="tracker-tabs">
+          <Tabs>
+            <TabList aria-label="Application tracker views" size="sm">
+              <Tab>Active</Tab>
+              <Tab>Archived</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel>
+                <div className="kanban-board" aria-label="Active application tracker board">
+                  {activeApplicationStatuses.map((option) => {
+                    const columnApplications = applicationsByStatus.get(option.status) ?? [];
 
-            return (
-              <section className="kanban-column" key={option.status} aria-label={option.label}>
-                <div className="kanban-column__header">
-                  <h3>{option.label}</h3>
-                  <Tag type="gray">{columnApplications.length}</Tag>
+                    return (
+                      <section className="kanban-column" key={option.status} aria-label={option.label}>
+                        <div className="kanban-column__header">
+                          <h3>{option.label}</h3>
+                          <Tag type="gray">{columnApplications.length}</Tag>
+                        </div>
+
+                        <div className="application-card-list">
+                          {columnApplications.map((application) => (
+                            <ApplicationCard
+                              application={application}
+                              isSelected={application.id === selectedApplicationId}
+                              key={application.id}
+                              onSelect={handleSelectApplication}
+                              onStatusChange={onStatusChange}
+                            />
+                          ))}
+
+                          {!isLoading && columnApplications.length === 0 ? <p className="kanban-empty">No applications</p> : null}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
-
-                <div className="application-card-list">
-                  {columnApplications.map((application) => (
-                    <ApplicationCard
-                      application={application}
-                      isSelected={application.id === selectedApplicationId}
-                      key={application.id}
-                      onSelect={handleSelectApplication}
-                      onStatusChange={onStatusChange}
-                    />
-                  ))}
-
-                  {!isLoading && columnApplications.length === 0 ? <p className="kanban-empty">No applications</p> : null}
+              </TabPanel>
+              <TabPanel>
+                <div className="archived-application-toolbar">
+                  <span>{archivedApplications.length} archived</span>
+                  <Button
+                    disabled={archivedApplications.length === 0 || isPurgingArchived}
+                    kind="danger--ghost"
+                    renderIcon={TrashCan}
+                    size="sm"
+                    onClick={() => setIsPurgeConfirmOpen(true)}
+                  >
+                    Purge all
+                  </Button>
                 </div>
-              </section>
-            );
-          })}
+                {archivedApplications.length > 0 ? (
+                  <div className="archived-application-list" aria-label="Archived applications">
+                    {archivedApplications.map((application) => (
+                      <ApplicationCard
+                        application={application}
+                        isSelected={application.id === selectedApplicationId}
+                        key={application.id}
+                        onSelect={handleSelectApplication}
+                        onStatusChange={onStatusChange}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kanban-empty">No archived applications</p>
+                )}
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
         </div>
       </Tile>
       <Modal
@@ -616,6 +830,26 @@ export const ApplicationTrackerPanel = memo(function ApplicationTrackerPanel({
           />
         ) : null}
       </Modal>
+      <Modal
+        danger
+        modalHeading="Purge archived applications"
+        primaryButtonDisabled={archivedApplications.length === 0 || isPurgingArchived}
+        primaryButtonText={isPurgingArchived ? "Purging" : "Purge all"}
+        secondaryButtonText="Cancel"
+        open={isPurgeConfirmOpen}
+        size="xs"
+        onRequestClose={() => {
+          if (!isPurgingArchived) {
+            setIsPurgeConfirmOpen(false);
+          }
+        }}
+        onRequestSubmit={() => void handlePurgeArchived()}
+      >
+        <p>
+          This will permanently delete {archivedApplications.length} archived{" "}
+          {archivedApplications.length === 1 ? "application" : "applications"}.
+        </p>
+      </Modal>
     </div>
   );
 });
@@ -627,7 +861,8 @@ function createInterviewDateInputFromDto(value: ApplicationInterviewDateDto, ind
       id: `interview-${index}-${Date.now()}`,
       label: value.label ?? `Interview ${index + 1}`,
       date: "",
-      time: ""
+      time: "",
+      mode: "display"
     };
   }
 
@@ -635,7 +870,8 @@ function createInterviewDateInputFromDto(value: ApplicationInterviewDateDto, ind
     id: `interview-${index}-${date.getTime()}`,
     label: value.label ?? `Interview ${index + 1}`,
     date: formatDateInputValue(date),
-    time: formatTimeInputValue(date)
+    time: formatTimeInputValue(date),
+    mode: "display"
   };
 }
 
@@ -648,7 +884,33 @@ function createNewInterviewDateInput(): InterviewDateInput {
     id: `interview-new-${Date.now()}`,
     label: "Interview",
     date: formatDateInputValue(date),
-    time: formatTimeInputValue(date)
+    time: formatTimeInputValue(date),
+    mode: "draft"
+  };
+}
+
+function getInterviewDateDisplayParts(value: InterviewDateInput, index: number) {
+  const date = new Date(`${value.date}T${value.time}`);
+  const label = value.label.trim() || `Interview ${index + 1}`;
+
+  if (!Number.isFinite(date.getTime())) {
+    return {
+      label,
+      date: value.date || "No date",
+      time: value.time || "No time"
+    };
+  }
+
+  return {
+    label,
+    date: date.toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "long"
+    }),
+    time: date.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit"
+    })
   };
 }
 
@@ -680,15 +942,7 @@ function serializeInterviewDates(values: InterviewDateInput[]) {
   return values
     .filter((value) => value.date || value.time)
     .map((value, index) => {
-      if (!value.date || !value.time) {
-        throw new Error(`Interview ${index + 1} needs both date and time.`);
-      }
-
-      const date = new Date(`${value.date}T${value.time}`);
-
-      if (!Number.isFinite(date.getTime())) {
-        throw new Error(`Invalid interview ${index + 1}.`);
-      }
+      const date = validateInterviewDateInput(value, index);
 
       return {
         label: value.label.trim() || `Interview ${index + 1}`,
@@ -697,11 +951,36 @@ function serializeInterviewDates(values: InterviewDateInput[]) {
     });
 }
 
+function validateInterviewDateInput(value: InterviewDateInput, index: number) {
+  if (!value.date || !value.time) {
+    throw new Error(`Interview ${index + 1} needs both date and time.`);
+  }
+
+  const date = new Date(`${value.date}T${value.time}`);
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error(`Invalid interview ${index + 1}.`);
+  }
+
+  return date;
+}
+
+function serializeInterviewRound(value: string) {
+  const round = Number(value);
+
+  if (!Number.isInteger(round) || round < 1 || round > maxApplicationInterviewRound) {
+    throw new Error(`Interview round must be between 1 and ${maxApplicationInterviewRound}.`);
+  }
+
+  return round;
+}
+
 function createApplicationLinkInputFromDto(link: ApplicationLinkDto, index = 0): ApplicationLinkInput {
   return {
     id: createClientId(`link-${index}`),
     label: link.label ?? "",
-    url: link.url
+    url: link.url,
+    mode: "display"
   };
 }
 
@@ -709,7 +988,8 @@ function createNewApplicationLinkInput(): ApplicationLinkInput {
   return {
     id: createClientId("link-new"),
     label: "",
-    url: ""
+    url: "",
+    mode: "draft"
   };
 }
 

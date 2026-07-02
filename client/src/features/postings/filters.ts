@@ -10,11 +10,19 @@ export const postingTagFilters: PostingTagFilter[] = [
 ];
 
 export const sponsorshipFilters: PostingFacetFilter[] = [
-  { id: "no-sponsorship", label: "Does not offer sponsorship", matches: (posting) => posting.doesNotOfferSponsorship }
+  {
+    id: "sponsorship-not-ruled-out",
+    label: "Visa sponsorship not ruled out",
+    matches: (posting) => !posting.doesNotOfferSponsorship
+  }
 ];
 
 export const citizenshipFilters: PostingFacetFilter[] = [
-  { id: "us-citizenship", label: "US citizenship required", matches: (posting) => posting.requiresUsCitizenship }
+  {
+    id: "no-us-citizenship-required",
+    label: "No U.S. citizenship required",
+    matches: (posting) => !posting.requiresUsCitizenship
+  }
 ];
 
 function normalizeFilterText(value: string) {

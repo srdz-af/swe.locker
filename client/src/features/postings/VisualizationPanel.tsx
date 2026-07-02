@@ -668,8 +668,14 @@ export const VisualizationPanel = memo(function VisualizationPanel({
     { label: "Status", value: posting.isClosed ? "Closed" : posting.isActive ? "Active" : "Inactive" },
     { label: "First", value: formatDate(posting.firstSeenAt) },
     { label: "Last", value: formatDate(posting.lastSeenAt) },
-    ...(posting.doesNotOfferSponsorship ? [{ label: "Sponsorship", value: "Does not offer sponsorship" }] : []),
-    ...(posting.requiresUsCitizenship ? [{ label: "Citizenship", value: "US citizenship required" }] : [])
+    {
+      label: "Visa sponsorship",
+      value: posting.doesNotOfferSponsorship ? "Not offered" : "Not ruled out"
+    },
+    {
+      label: "Citizenship",
+      value: posting.requiresUsCitizenship ? "U.S. citizenship required" : "No U.S. citizenship required"
+    }
   ];
 
   return (

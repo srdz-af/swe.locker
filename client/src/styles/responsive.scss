@@ -84,10 +84,6 @@
     grid-template-columns: 1fr;
   }
 
-  .stats-top-row .stats-strip {
-    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-  }
-
   .tracking-results-chart {
     min-inline-size: 42rem;
   }
@@ -109,22 +105,6 @@
     min-block-size: 0;
     overflow-y: auto;
     padding-inline-end: 0.25rem;
-  }
-
-  .tracker-tile {
-    display: flex;
-    max-block-size: calc(100vh - 15.5rem);
-    max-block-size: calc(100dvh - 15.5rem);
-    min-block-size: 0;
-    flex-direction: column;
-  }
-
-  .tracker-tile > .section-header {
-    flex: none;
-  }
-
-  .tracker-tile .kanban-board {
-    flex: 1 1 auto;
   }
 
 }

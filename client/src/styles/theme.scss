@@ -197,7 +197,6 @@ body {
 .incoming-interviews-tile,
 .activity-heatmap-tile,
 .stats-resume-radar-tile,
-.stats-overview-tile,
 .resume-grader-latest-tile,
 .resume-runs-tile,
 .application-details-tile,
@@ -222,7 +221,6 @@ body {
 .incoming-interviews-tile h2,
 .activity-heatmap-tile h2,
 .stats-resume-radar-tile h2,
-.stats-overview-tile h2,
 .resume-grader-latest-tile h2,
 .resume-runs-tile h2,
 .application-details-tile h2,
@@ -279,7 +277,9 @@ body {
 }
 
 .floating-notices .cds--inline-notification,
-.floating-notices .bx--inline-notification {
+.floating-notices .bx--inline-notification,
+.floating-notices .cds--actionable-notification,
+.floating-notices .bx--actionable-notification {
   margin: 0;
   max-inline-size: 100%;
   pointer-events: auto;

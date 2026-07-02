@@ -7,6 +7,8 @@ import type {
   CreateManualApplicationRequest,
   FollowedCompanyDto,
   JobPostingDto,
+  RestoreApplicationSnapshotRequest,
+  RestoreResumeRunSnapshotRequest,
   ResumeRunDto,
   SourceConfigDto,
   UpdateApplicationDetailsRequest,
@@ -42,8 +44,9 @@ export async function unfollowCompany(normalizedCompanyName: string) {
   });
 }
 
-export async function listApplications() {
-  return request<ApplicationDto[]>("/applications");
+export async function listApplications(options: { includeArchived?: boolean } = {}) {
+  const query = options.includeArchived ? "?includeArchived=true" : "";
+  return request<ApplicationDto[]>(`/applications${query}`);
 }
 
 export async function getApplicationActivity(year?: number) {
@@ -114,9 +117,28 @@ export async function deleteApplication(applicationId: string) {
   });
 }
 
+export async function purgeArchivedApplications() {
+  return request<{ deletedCount: number }>("/applications/archived", {
+    method: "DELETE"
+  });
+}
+
 export async function archiveApplication(applicationId: string) {
   return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/archive`, {
     method: "PATCH"
+  });
+}
+
+export async function unarchiveApplication(applicationId: string) {
+  return request<ApplicationDto>(`/applications/${encodeURIComponent(applicationId)}/unarchive`, {
+    method: "PATCH"
+  });
+}
+
+export async function restoreApplicationSnapshot(input: RestoreApplicationSnapshotRequest) {
+  return request<ApplicationDto>("/applications/restore", {
+    method: "POST",
+    body: JSON.stringify(input)
   });
 }
 
@@ -134,6 +156,13 @@ export async function createResumeRun(input: CreateResumeRunRequest) {
 export async function deleteResumeRun(resumeRunId: string) {
   await request<void>(`/resume-runs/${encodeURIComponent(resumeRunId)}`, {
     method: "DELETE"
+  });
+}
+
+export async function restoreResumeRunSnapshot(input: RestoreResumeRunSnapshotRequest) {
+  return request<ResumeRunDto>("/resume-runs/restore", {
+    method: "POST",
+    body: JSON.stringify(input)
   });
 }
 
